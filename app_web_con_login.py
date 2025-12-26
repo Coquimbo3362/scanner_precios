@@ -4,15 +4,15 @@ import json
 import os
 from PIL import Image
 from dotenv import load_dotenv
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from supabase import create_client, Client
-from gotrue.errors import AuthApiError # Para manejar errores de login
+from gotrue.errors import AuthApiError
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title="Club de Precios", page_icon="🛒", layout="centered")
 
-# --- CARGA DE SECRETOS (Compatibilidad Local y Nube) ---
-# Si estamos en local, usa .env. Si estamos en la nube, usa st.secrets
+# --- CARGA DE SECRETOS ---
 try:
     load_dotenv()
     # Prioridad: st.secrets (Nube) -> os.environ (Local)
@@ -20,12 +20,47 @@ try:
     KEY = st.secrets["SUPABASE_KEY"] if "SUPABASE_KEY" in st.secrets else os.environ.get("SUPABASE_KEY")
     GOOGLE_KEY = st.secrets["GOOGLE_API_KEY"] if "GOOGLE_API_KEY" in st.secrets else os.environ.get("GOOGLE_API_KEY")
 
+    if not URL or not KEY or not GOOGLE_KEY:
+        st.error("❌ Faltan claves de configuración.")
+        st.stop()
+
     supabase: Client = create_client(URL, KEY)
-    genai.configure(api_key=GOOGLE_KEY)
-    model = genai.GenerativeModel('gemini-2.5-flash')
+    client = genai.Client(api_key=GOOGLE_KEY)
+    
+    # Usamos el modelo moderno que confirmamos que funciona
+    MODELO_IA = 'gemini-2.5-flash' 
+
 except Exception as e:
-    st.error(f"❌ Error de configuración: {e}")
+    st.error(f"❌ Error de configuración inicial: {e}")
     st.stop()
+
+# --- LISTA DE RUBROS ---
+RUBROS_VALIDOS = """
+- Almacén
+- Bebidas s/Alcohol
+- Bebidas c/Alcohol
+- Carnicería
+- Pescadería
+- Frutas y Verduras
+- Lácteos
+- Quesos y Fiambres
+- Panadería y Galletitas
+- Golosinas
+- Congelados y Helados
+- Comida Elaborada / Rotisería
+- Limpieza
+- Perfumería e Higiene
+- Bebés y Maternidad
+- Mascotas
+- Electro y Tecnología
+- Juguetería
+- Ropa y Calzado
+- Librería
+- Hogar, Muebles y Bazar
+- Ferretería y Herramientas
+- Automotor
+- Otros
+"""
 
 # --- GESTIÓN DE SESIÓN ---
 if 'user' not in st.session_state:
@@ -44,13 +79,17 @@ def login():
             st.session_state['user'] = session.user
             st.rerun()
         except Exception as e:
-            st.error("Email o contraseña incorrectos")
+            st.error(f"Error: Email o contraseña incorrectos.")
 
     if col2.button("Registrarme"):
         try:
-            # Crea el usuario en Supabase Auth
             response = supabase.auth.sign_up({"email": email, "password": password})
-            st.success("¡Cuenta creada! Revisa tu email para confirmar o intenta ingresar.")
+            # Si el autoconfirm está activado en Supabase, entra directo
+            if response.session:
+                st.session_state['user'] = response.session.user
+                st.rerun()
+            else:
+                st.success("Cuenta creada. Intenta ingresar.")
         except Exception as e:
             st.error(f"Error al registrar: {e}")
 
@@ -59,18 +98,16 @@ def logout():
     st.session_state['user'] = None
     st.rerun()
 
-# --- FUNCIONES DEL ESCÁNER (Tu lógica original) ---
+# --- LÓGICA DE IA Y BASE DE DATOS ---
 def guardar_en_supabase(data):
-    # ... (Mismo código de antes) ...
-    # Solo agregamos el user_id para saber QUIÉN escaneó
     try:
         user_id = st.session_state['user'].id
     except:
-        user_id = None # Por si acaso
+        user_id = None 
 
     nombre_super_ia = data['supermercado'].strip().upper()
     
-    # Buscar/Crear Super
+    # 1. Buscar/Crear Super
     res_super = supabase.table('supermercados').select('id').ilike('nombre', nombre_super_ia).execute()
     if res_super.data:
         super_id = res_super.data[0]['id']
@@ -78,14 +115,14 @@ def guardar_en_supabase(data):
         res_new = supabase.table('supermercados').insert({"nombre": nombre_super_ia}).execute()
         super_id = res_new.data[0]['id']
 
-    # Insertar Ticket
+    # 2. Insertar Ticket (Cabecera)
     ticket_data = {
-        "user_id": user_id, # <--- GUARDAMOS EL USUARIO
+        "user_id": user_id,
         "supermercado_id": super_id,
         "fecha": data['fecha'],
         "hora": data['hora'],
         "monto_total": data['total_pagado'],
-        "imagen_url": "cloud_upload"
+        "imagen_url": "cloud_v2"
     }
     
     try:
@@ -99,51 +136,96 @@ def guardar_en_supabase(data):
                 "nombre_producto": item['nombre'],
                 "cantidad": item['cantidad'],
                 "precio_neto_unitario": item['precio_neto_final'],
-                "unidad_medida": item['unidad_medida']
+                "unidad_medida": item['unidad_medida'],
+                # NUEVOS CAMPOS CLASIFICADOS
+                "rubro": item.get('rubro'),
+                "marca": item.get('marca'),
+                "producto_generico": item.get('producto_generico'),
+                "contenido_neto": item.get('contenido_neto'),
+                "unidad_contenido": item.get('unidad_contenido')
             })
+            
         supabase.table('items_compra').insert(items_a_insertar).execute()
         return len(items_a_insertar)
+        
     except Exception as e:
         if "unique" in str(e).lower() or "duplicate" in str(e).lower():
             return "DUPLICADO"
+        st.error(f"Error DB Detalle: {e}")
         return False
 
 def procesar_imagenes(lista_imagenes):
-    # ... (Mismo código de IA de antes) ...
     contenido = []
-    prompt = """
-    Analiza estas imágenes de un ticket. Une la información.
-    JSON estricto: {"supermercado": "Nombre", "fecha": "YYYY-MM-DD", "hora": "HH:MM", "nro_ticket": "str", "total_pagado": num, "items": [{"nombre": "Prod", "cantidad": num, "unidad_medida": "Un/Kg/Lt", "precio_neto_final": num}]}
+    
+    prompt = f"""
+    Analiza estas imágenes de un ticket de compra. Une la información.
+    
+    Tu misión es extraer y CLASIFICAR cada producto.
+    
+    Lista de Rubros permitidos: {RUBROS_VALIDOS}
+    
+    Devuelve un JSON estricto con esta estructura:
+    {{
+        "supermercado": "Nombre del super",
+        "fecha": "YYYY-MM-DD",
+        "hora": "HH:MM",
+        "nro_ticket": "string",
+        "total_pagado": número,
+        "items": [
+            {{
+                "nombre": "Texto original del ticket",
+                "cantidad": número,
+                "unidad_medida": "Un/Kg/Lt",
+                "precio_neto_final": número (precio unitario real pagado),
+                
+                "marca": "Marca detectada (o null)",
+                "producto_generico": "Nombre limpio (ej: Aceite Girasol)",
+                "rubro": "Uno de la lista de permitidos",
+                "contenido_neto": número (ej: 1.5),
+                "unidad_contenido": "Unidad normalizada (lt, kg, cc, gr)"
+            }}
+        ]
+    }}
     Si falta año asume 2025.
     """
     contenido.append(prompt)
+    
+    # Convertir imágenes para la nueva librería
     for img_file in lista_imagenes:
         img = Image.open(img_file)
         contenido.append(img)
+
     try:
-        result = model.generate_content(contenido)
-        texto = result.text.replace("```json", "").replace("```", "").strip()
-        data = json.loads(texto)
-        return data
+        # Llamada a la API Nueva (google-genai)
+        response = client.models.generate_content(
+            model=MODELO_IA,
+            contents=contenido,
+            config=types.GenerateContentConfig(
+                response_mime_type='application/json'
+            )
+        )
+        
+        texto_limpio = response.text.replace("```json", "").replace("```", "").strip()
+        return json.loads(texto_limpio)
+        
     except Exception as e:
-        st.error(f"Error IA: {e}")
+        st.error(f"Error Inteligencia Artificial: {e}")
         return None
 
-# --- FLUJO PRINCIPAL ---
+# --- INTERFAZ DE USUARIO ---
 
 if not st.session_state['user']:
-    # Si NO está logueado, muestra pantalla de login
     login()
 else:
-    # Si ESTÁ logueado, muestra la App
-    st.sidebar.write(f"Hola, {st.session_state['user'].email}")
-    if st.sidebar.button("Cerrar Sesión"):
-        logout()
+    with st.sidebar:
+        st.write(f"👤 {st.session_state['user'].email}")
+        if st.button("Cerrar Sesión"):
+            logout()
 
-    st.title("🛒 Escáner de Precios")
+    st.title("🛒 Club de Precios")
+    st.caption("v2.0 - Clasificación Automática")
     
-    # --- AQUÍ VA TU INTERFAZ DE CÁMARA (Igual que antes) ---
-    img_file_buffer = st.camera_input("📸 Saca una foto")
+    img_file_buffer = st.camera_input("📸 Escanear Ticket")
 
     if 'fotos_acumuladas' not in st.session_state:
         st.session_state['fotos_acumuladas'] = []
@@ -155,28 +237,33 @@ else:
             st.toast("✅ Foto agregada")
 
     if st.session_state['fotos_acumuladas']:
-        st.write(f"🎞️ Fotos: {len(st.session_state['fotos_acumuladas'])}")
+        st.divider()
+        st.write(f"🎞️ **{len(st.session_state['fotos_acumuladas'])} capturas listas**")
+        
+        # Galería horizontal
         cols = st.columns(len(st.session_state['fotos_acumuladas']))
         for idx, foto in enumerate(st.session_state['fotos_acumuladas']):
-            cols[idx].image(foto, width=100)
+            cols[idx].image(foto, width=80)
 
         col1, col2 = st.columns(2)
-        if col1.button("🗑️ Limpiar"):
+        if col1.button("🗑️ Borrar", use_container_width=True):
             st.session_state['fotos_acumuladas'] = []
             st.rerun()
 
-        if col2.button("🚀 PROCESAR"):
-            with st.spinner("Analizando ticket..."):
+        if col2.button("🚀 PROCESAR AHORA", type="primary", use_container_width=True):
+            with st.spinner("🤖 Leyendo y clasificando productos..."):
                 data = procesar_imagenes(st.session_state['fotos_acumuladas'])
+                
                 if data:
                     res = guardar_en_supabase(data)
+                    
                     if res == "DUPLICADO":
-                        st.warning("⚠️ Ticket ya cargado.")
+                        st.warning("⚠️ Este ticket ya fue cargado anteriormente.")
                     elif res:
                         st.balloons()
-                        st.success(f"✅ ¡Guardado! {res} items.")
+                        st.success(f"✅ ¡Éxito! Se guardaron {res} productos.")
                         st.session_state['fotos_acumuladas'] = []
-                        time.sleep(2)
+                        time.sleep(3)
                         st.rerun()
                     else:
-                        st.error("Error al guardar.")
+                        st.error("No se pudieron guardar los datos.")
