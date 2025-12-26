@@ -1,6 +1,7 @@
 import streamlit as st
 import time
 import json
+import re # Librería para limpiar texto
 import os
 from PIL import Image
 from dotenv import load_dotenv
@@ -8,9 +9,9 @@ from google import genai
 from google.genai import types
 from supabase import create_client, Client
 
-# --- CONFIGURACIÓN ---
 st.set_page_config(page_title="Club de Precios Global", page_icon="🌎", layout="centered")
 
+# --- CONFIGURACIÓN ---
 try:
     load_dotenv()
     URL = st.secrets["SUPABASE_URL"] if "SUPABASE_URL" in st.secrets else os.environ.get("SUPABASE_URL")
@@ -29,7 +30,7 @@ except Exception as e:
     st.error(f"Error config: {e}")
     st.stop()
 
-# --- DATOS MAESTROS INTERNACIONALES ---
+# --- DATOS MAESTROS ---
 PAISES_SOPORTADOS = ["Argentina", "Uruguay", "Chile", "Brasil", "Paraguay", "Bolivia", "Perú", "Colombia", "México", "España", "USA", "Otro"]
 
 RUBROS_VALIDOS = """
@@ -59,55 +60,77 @@ RUBROS_VALIDOS = """
 - Otros
 """
 
+# --- FUNCIONES DE LIMPIEZA (LA SOLUCIÓN A TUS ERRORES) ---
+def limpiar_numero(valor):
+    """Convierte '1.500,50' o '$ 10' o '1kg' a un número flotante limpio"""
+    if not valor: return 0.0
+    if isinstance(valor, (int, float)): return float(valor)
+    
+    # Convertir a string y quitar símbolos de moneda o unidades
+    texto = str(valor).replace('$', '').replace('kg', '').replace('lt', '').replace('un', '').strip()
+    
+    # Reemplazar coma por punto si es decimal simple (ej: 1,5 -> 1.5)
+    # Pero cuidado con miles (1.000,00). 
+    # Estrategia simple: Quitar todo lo que no sea numero, punto o coma
+    texto = re.sub(r'[^\d.,-]', '', texto)
+    
+    try:
+        # Intentar conversión directa (formato USA: 1000.50)
+        return float(texto)
+    except:
+        try:
+            # Intentar formato Europeo/Latino (1.000,50 -> reemplazar , por .)
+            # Si tiene coma, reemplazamos por punto. Si tiene puntos de miles, los quitamos.
+            if ',' in texto and '.' in texto:
+                texto = texto.replace('.', '').replace(',', '.')
+            elif ',' in texto:
+                texto = texto.replace(',', '.')
+            return float(texto)
+        except:
+            return 0.0
+
+def limpiar_fecha(fecha_str):
+    """Intenta asegurar que la fecha sea YYYY-MM-DD"""
+    if not fecha_str: return "2025-01-01"
+    # Si viene vacía o mal, devolvemos hoy (o una fecha default)
+    # Aquí confiamos en que el prompt de la IA haga su trabajo, 
+    # pero si falla, retornamos la fecha actual para no romper la base.
+    if len(fecha_str) != 10: 
+        return time.strftime("%Y-%m-%d")
+    return fecha_str
+
 # --- GESTIÓN USUARIOS ---
-if 'user' not in st.session_state:
-    st.session_state['user'] = None
+if 'user' not in st.session_state: st.session_state['user'] = None
 
 def login():
     st.subheader("🌎 Ingreso Global")
     tab1, tab2 = st.tabs(["Ingresar", "Crear Cuenta"])
     
     with tab1:
-        email = st.text_input("Email", key="log_email")
-        password = st.text_input("Contraseña", type="password", key="log_pass")
+        email = st.text_input("Email", key="l_email")
+        password = st.text_input("Contraseña", type="password", key="l_pass")
         if st.button("Entrar"):
             try:
                 session = supabase.auth.sign_in_with_password({"email": email, "password": password})
                 st.session_state['user'] = session.user
                 st.rerun()
-            except:
-                st.error("Datos incorrectos")
+            except: st.error("Datos incorrectos")
 
     with tab2:
-        st.markdown("##### Datos de tu residencia")
-        new_email = st.text_input("Email", key="reg_email")
-        new_pass = st.text_input("Contraseña", type="password", key="reg_pass")
-        
-        c1, c2 = st.columns(2)
-        pais = c1.selectbox("País", PAISES_SOPORTADOS)
-        provincia = c2.text_input("Provincia / Estado")
-        
-        c3, c4 = st.columns(2)
-        ciudad = c3.text_input("Ciudad")
-        cp = c4.text_input("Código Postal")
+        new_email = st.text_input("Email", key="r_email")
+        new_pass = st.text_input("Contraseña", type="password", key="r_pass")
+        pais = st.selectbox("País", PAISES_SOPORTADOS)
+        ciudad = st.text_input("Ciudad")
         
         if st.button("Registrarme"):
-            if not new_email or not new_pass or not ciudad:
-                st.warning("Completa los datos geográficos.")
-            else:
-                try:
-                    res = supabase.auth.sign_up({"email": new_email, "password": new_pass})
-                    if res.user:
-                        supabase.table('perfiles').insert({
-                            "id": res.user.id,
-                            "pais": pais,
-                            "provincia": provincia,
-                            "ciudad": ciudad,
-                            "codigo_postal": cp
-                        }).execute()
-                        st.success("¡Bienvenido! Ya puedes ingresar.")
-                except Exception as e:
-                    st.error(f"Error: {e}")
+            try:
+                res = supabase.auth.sign_up({"email": new_email, "password": new_pass})
+                if res.user:
+                    supabase.table('perfiles').insert({
+                        "id": res.user.id, "pais": pais, "ciudad": ciudad
+                    }).execute()
+                    st.success("Cuenta creada.")
+            except Exception as e: st.error(f"Error: {e}")
 
 def logout():
     supabase.auth.sign_out()
@@ -118,12 +141,11 @@ def logout():
 def guardar_en_supabase(data):
     try:
         user_id = st.session_state['user'].id
-    except:
-        user_id = None 
+    except: user_id = None 
 
     nombre_super = data['supermercado'].strip().upper()
     
-    # Supermercados
+    # Supermercado
     res_super = supabase.table('supermercados').select('id').ilike('nombre', nombre_super).execute()
     if res_super.data:
         super_id = res_super.data[0]['id']
@@ -131,21 +153,21 @@ def guardar_en_supabase(data):
         res_new = supabase.table('supermercados').insert({"nombre": nombre_super}).execute()
         super_id = res_new.data[0]['id']
 
-    # Ticket INTERNACIONAL
+    # Ticket (Limpiando fecha)
+    fecha_limpia = limpiar_fecha(data['fecha'])
+    
     ticket_data = {
         "user_id": user_id,
         "supermercado_id": super_id,
-        "fecha": data['fecha'],
+        "fecha": fecha_limpia,
         "hora": data['hora'],
-        "monto_total": data['total_pagado'],
-        "imagen_url": "cloud_v3.1_intl",
-        
-        # DATOS GEO + MONEDA
+        "monto_total": limpiar_numero(data['total_pagado']),
+        "imagen_url": "cloud_v4_cleaned",
         "sucursal_direccion": data.get('sucursal_direccion'),
         "sucursal_localidad": data.get('sucursal_localidad'),
         "sucursal_provincia": data.get('sucursal_provincia'),
         "sucursal_pais": data.get('sucursal_pais'),
-        "moneda": data.get('moneda') # ARS, USD, etc.
+        "moneda": data.get('moneda')
     }
     
     try:
@@ -157,37 +179,36 @@ def guardar_en_supabase(data):
             items.append({
                 "ticket_id": ticket_id,
                 "nombre_producto": item['nombre'],
-                "cantidad": item['cantidad'],
-                "precio_neto_unitario": item['precio_neto_final'],
+                "cantidad": limpiar_numero(item['cantidad']),
+                "precio_neto_unitario": limpiar_numero(item['precio_neto_final']),
                 "unidad_medida": item['unidad_medida'],
                 "rubro": item.get('rubro'),
                 "marca": item.get('marca'),
                 "producto_generico": item.get('producto_generico'),
-                "contenido_neto": item.get('contenido_neto'),
+                "contenido_neto": limpiar_numero(item.get('contenido_neto')), # LIMPIEZA CLAVE
                 "unidad_contenido": item.get('unidad_contenido')
             })
             
         supabase.table('items_compra').insert(items).execute()
         return len(items)
+        
     except Exception as e:
-        if "unique" in str(e).lower() or "duplicate" in str(e).lower():
-            return "DUPLICADO"
+        # MOSTRAMOS EL ERROR DETALLADO EN PANTALLA
+        st.error(f"❌ Error Técnico al guardar: {e}")
+        if "unique" in str(e).lower(): return "DUPLICADO"
         return False
 
 def procesar_imagenes(lista_imagenes):
     contenido = []
     
-    # PROMPT INTERNACIONAL
+    # PROMPT MAS ESTRICTO CON FECHAS
     prompt = f"""
-    Analiza este ticket de compra (puede ser de cualquier país).
+    Analiza este ticket.
     
-    1. UBICACIÓN Y MONEDA:
-       - Detecta la Dirección, Ciudad, Provincia/Estado y PAÍS.
-       - Detecta la MONEDA (ISO Code: ARS, BRL, USD, EUR, CLP, UYU). Infiérela por el país y el símbolo (R$ = BRL, $ en Arg = ARS).
+    IMPORTANTE FECHAS: Busca la fecha de compra. Formato de salida OBLIGATORIO: YYYY-MM-DD (Ej: 2025-12-25).
+    Si el año es ambiguo (ej: 25), asume 2025.
     
-    2. PRODUCTOS:
-       - Clasifica cada item usando la lista de rubros.
-       - Detecta marcas y nombres genéricos.
+    IMPORTANTE NÚMEROS: En 'contenido_neto' devuelve SOLO el número (ej: 1.5), pon la unidad (kg, lt) en 'unidad_contenido'.
     
     Rubros: {RUBROS_VALIDOS}
     
@@ -197,8 +218,8 @@ def procesar_imagenes(lista_imagenes):
         "sucursal_direccion": "Calle...",
         "sucursal_localidad": "Ciudad",
         "sucursal_provincia": "Provincia",
-        "sucursal_pais": "País (ej: Argentina, Brasil)",
-        "moneda": "Código ISO (ej: ARS)",
+        "sucursal_pais": "País",
+        "moneda": "ISO Code",
         "fecha": "YYYY-MM-DD",
         "hora": "HH:MM",
         "nro_ticket": "str",
@@ -224,7 +245,7 @@ def procesar_imagenes(lista_imagenes):
 
     try:
         response = client.models.generate_content(
-            model=MODELO_IA,
+            model='gemini-2.5-flash',
             contents=contenido,
             config=types.GenerateContentConfig(response_mime_type='application/json')
         )
@@ -239,15 +260,9 @@ if not st.session_state['user']:
 else:
     with st.sidebar:
         st.write(f"👤 {st.session_state['user'].email}")
-        try:
-            p = supabase.table('perfiles').select('*').eq('id', st.session_state['user'].id).execute().data[0]
-            st.success(f"📍 {p['ciudad']}, {p['pais']}")
-        except:
-            pass
         if st.button("Salir"): logout()
 
     st.title("🛒 Club de Precios")
-    st.caption("v3.1 - Multimoneda y Geolocalización")
     
     img = st.camera_input("📸 Ticket")
     if 'fotos' not in st.session_state: st.session_state['fotos'] = []
@@ -268,16 +283,15 @@ else:
             st.rerun()
             
         if c2.button("🚀 PROCESAR"):
-            with st.spinner("🌎 Analizando país, moneda y precios..."):
+            with st.spinner("🌎 Analizando..."):
                 data = procesar_imagenes(st.session_state['fotos'])
                 if data:
                     res = guardar_en_supabase(data)
                     if res == "DUPLICADO": st.warning("⚠️ Ya existe")
                     elif res:
                         st.balloons()
-                        loc = f"{data.get('sucursal_pais')} ({data.get('moneda')})"
-                        st.success(f"✅ {res} items guardados en **{loc}**")
+                        st.success(f"✅ {res} items guardados del día **{data['fecha']}**")
                         st.session_state['fotos'] = []
                         time.sleep(3)
                         st.rerun()
-                    else: st.error("Error al guardar")
+                    # Si falla, el error exacto saldrá en pantalla roja gracias al cambio en 'guardar_en_supabase'
