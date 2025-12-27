@@ -9,15 +9,23 @@ from google import genai
 from google.genai import types
 from supabase import create_client, Client
 
-# --- CONFIGURACIÓN DE PÁGINA (Compacta) ---
-st.set_page_config(page_title="Club Precios", page_icon="🛒", layout="centered", initial_sidebar_state="collapsed")
+# --- 1. CONFIGURACIÓN VISUAL (AJUSTES NUEVOS) ---
+# Cambiamos layout="centered" por "wide" para que la cámara use todo el ancho del celular
+st.set_page_config(page_title="Club Precios", page_icon="🛒", layout="wide", initial_sidebar_state="collapsed")
 
-# CSS HACK: Achicar encabezados para ganar espacio en el celular
+# CSS HACK MEJORADO:
+# - padding-top: 3.5rem -> Baja el contenido para que la barra de menú no tape el título.
+# - padding-left/right: 0.5rem -> Aprovecha los bordes del celular para la cámara.
 st.markdown("""
     <style>
-        .block-container { padding-top: 1rem; padding-bottom: 0rem; }
-        h1 { font-size: 1.5rem !important; margin-bottom: 0rem; }
-        .stButton button { width: 100%; border-radius: 10px; }
+        .block-container {
+            padding-top: 3.5rem !important;
+            padding-bottom: 1rem !important;
+            padding-left: 0.5rem !important;
+            padding-right: 0.5rem !important;
+        }
+        h1 { font-size: 1.8rem !important; margin-bottom: 0.5rem; }
+        .stButton button { width: 100%; border-radius: 12px; height: 3rem; font-size: 1.1rem; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -90,36 +98,34 @@ def limpiar_fecha(fecha_str):
     if len(fecha_str) != 10: return time.strftime("%Y-%m-%d")
     return fecha_str
 
-# --- LOGIN (ARREGLADO CON FORMULARIO) ---
+# --- LOGIN (FORMULARIO) ---
 if 'user' not in st.session_state: st.session_state['user'] = None
 
 def login():
     st.markdown("### 🌎 Ingreso Global")
-    
     tab1, tab2 = st.tabs(["Ingresar", "Crear Cuenta"])
     
     with tab1:
-        # Usamos st.form para evitar el error del doble click
         with st.form("login_form"):
             email = st.text_input("Email")
             password = st.text_input("Contraseña", type="password")
-            submit_login = st.form_submit_button("Entrar")
+            submit_login = st.form_submit_button("Entrar", use_container_width=True)
             
             if submit_login:
                 try:
                     session = supabase.auth.sign_in_with_password({"email": email, "password": password})
                     st.session_state['user'] = session.user
                     st.rerun()
-                except:
-                    st.error("Datos incorrectos")
+                except: st.error("Datos incorrectos")
 
     with tab2:
         with st.form("register_form"):
             new_email = st.text_input("Email")
             new_pass = st.text_input("Contraseña", type="password")
-            pais = st.selectbox("País", PAISES_SOPORTADOS)
-            ciudad = st.text_input("Ciudad")
-            submit_reg = st.form_submit_button("Registrarme")
+            c1, c2 = st.columns(2)
+            pais = c1.selectbox("País", PAISES_SOPORTADOS)
+            ciudad = c2.text_input("Ciudad")
+            submit_reg = st.form_submit_button("Registrarme", use_container_width=True)
             
             if submit_reg:
                 try:
@@ -127,15 +133,14 @@ def login():
                     if res.user:
                         supabase.table('perfiles').insert({"id": res.user.id, "pais": pais, "ciudad": ciudad}).execute()
                         st.success("Cuenta creada. Ingresa ahora.")
-                except Exception as e:
-                    st.error(f"Error: {e}")
+                except Exception as e: st.error(f"Error: {e}")
 
 def logout():
     supabase.auth.sign_out()
     st.session_state['user'] = None
     st.rerun()
 
-# --- PROCESAMIENTO ---
+# --- BACKEND ---
 def guardar_en_supabase(data):
     try: user_id = st.session_state['user'].id
     except: user_id = None 
@@ -150,7 +155,7 @@ def guardar_en_supabase(data):
     ticket_data = {
         "user_id": user_id, "supermercado_id": super_id, "fecha": limpiar_fecha(data['fecha']),
         "hora": data['hora'], "monto_total": limpiar_numero(data['total_pagado']),
-        "imagen_url": "v3.3_final", "sucursal_direccion": data.get('sucursal_direccion'),
+        "imagen_url": "v3.4_wide_ui", "sucursal_direccion": data.get('sucursal_direccion'),
         "sucursal_localidad": data.get('sucursal_localidad'), "sucursal_provincia": data.get('sucursal_provincia'),
         "sucursal_pais": data.get('sucursal_pais'), "moneda": data.get('moneda')
     }
@@ -177,9 +182,9 @@ def procesar_imagenes(lista_imagenes):
     contenido = []
     prompt = f"""
     Analiza este ticket de compra.
-    1. SUPERMERCADO: Extrae NOMBRE + SUCURSAL (ej: JUMBO UNICENTER).
+    1. SUPERMERCADO: Extrae NOMBRE + SUCURSAL.
     2. FECHA Y MONEDA: Fecha (YYYY-MM-DD) y Moneda ISO (ARS, BRL, USD).
-    3. PRODUCTOS: Extrae marca, genérico, rubro (de la lista), contenido y unidad.
+    3. PRODUCTOS: Marca, genérico, rubro (de la lista), contenido y unidad.
     Rubros: {RUBROS_VALIDOS}
     JSON Estricto:
     {{
@@ -208,30 +213,32 @@ if not st.session_state['user']:
     login()
 else:
     with st.sidebar:
-        st.write(f"👤 {st.session_state['user'].email}")
+        st.header("👤 Cuenta")
+        st.write(f"{st.session_state['user'].email}")
         if st.button("Salir"): logout()
 
-    # Título Compacto
+    # Título visible y espaciado correctamente
     st.markdown("### 🛒 Club de Precios")
     
-    # Instrucciones Claras
-    st.info("💡 **Tip:** Si el ticket es largo, saca varias fotos ('Nueva Foto'). Asegúrate de que se superpongan un poco los renglones.")
+    # Mensaje de ayuda (Texto corregido)
+    st.info("💡 **Tip:** Si el ticket es largo, **toma** varias fotos ('Nueva Foto'). Asegúrate de que se superpongan un poco los renglones.")
 
-    # Cámara
-    img = st.camera_input("📸 Tomar Foto")
+    # CÁMARA
+    # El label_visibility='collapsed' esconde el título "Tomar Foto" para ganar espacio
+    img = st.camera_input("Tomar Foto", label_visibility="collapsed")
     
     if 'fotos' not in st.session_state: st.session_state['fotos'] = []
     
     if img:
-        # Lógica para evitar duplicados al refrescar
         if not st.session_state['fotos'] or st.session_state['fotos'][-1].getvalue() != img.getvalue():
             st.session_state['fotos'].append(img)
-            st.toast("Foto guardada")
+            st.toast("✅ Foto guardada")
 
+    # Muestra lista de fotos si hay alguna
     if st.session_state['fotos']:
+        st.divider()
         st.write(f"🎞️ **{len(st.session_state['fotos'])} fotos listas**")
         
-        # Galería pequeña
         cols = st.columns(len(st.session_state['fotos']))
         for i, f in enumerate(st.session_state['fotos']): cols[i].image(f, width=80)
 
@@ -241,16 +248,11 @@ else:
             st.rerun()
             
         if c2.button("🚀 PROCESAR", type="primary", use_container_width=True):
-            with st.spinner("⏳ Analizando ticket..."):
+            with st.spinner("⏳ Analizando..."):
                 data = procesar_imagenes(st.session_state['fotos'])
                 if data:
                     res = guardar_en_supabase(data)
-                    if res == "DUPLICADO": st.warning("⚠️ Este ticket ya existe.")
+                    if res == "DUPLICADO": st.warning("⚠️ Ya cargaste este ticket.")
                     elif res:
                         st.balloons()
-                        # Feedback completo solicitado en punto 8
-                        total_fmt = f"{data.get('moneda', '$')} {data.get('total_pagado')}"
-                        st.success(f"✅ **¡Listo!**\n\n🛒 **Items:** {res}\n💰 **Total:** {total_fmt}\n📍 **Lugar:** {data.get('supermercado')}")
-                        st.session_state['fotos'] = []
-                        time.sleep(5)
-                        st.rerun()
+                        # --- FEEDBACK DE RESULTA
