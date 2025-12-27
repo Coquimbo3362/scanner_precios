@@ -255,4 +255,15 @@ else:
                     if res == "DUPLICADO": st.warning("⚠️ Ya cargaste este ticket.")
                     elif res:
                         st.balloons()
-                        # --- FEEDBACK DE RESULTA
+                        # --- FEEDBACK DE RESULTADO ---
+                        st.success(f"✅ **¡Carga Exitosa!**")
+                        
+                        col_a, col_b = st.columns(2)
+                        col_a.metric("Items", res)
+                        col_b.metric("Total", f"{data.get('moneda','$')} {data.get('total_pagado')}")
+                        
+                        st.caption(f"📍 {data.get('supermercado')}")
+                        
+                        st.session_state['fotos'] = []
+                        time.sleep(5)
+                        st.rerun()
