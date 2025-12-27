@@ -1,7 +1,7 @@
 import streamlit as st
 import time
 import json
-import re # Librería para limpiar texto
+import re
 import os
 from PIL import Image
 from dotenv import load_dotenv
@@ -60,27 +60,16 @@ RUBROS_VALIDOS = """
 - Otros
 """
 
-# --- FUNCIONES DE LIMPIEZA (LA SOLUCIÓN A TUS ERRORES) ---
+# --- FUNCIONES DE LIMPIEZA ---
 def limpiar_numero(valor):
-    """Convierte '1.500,50' o '$ 10' o '1kg' a un número flotante limpio"""
     if not valor: return 0.0
     if isinstance(valor, (int, float)): return float(valor)
-    
-    # Convertir a string y quitar símbolos de moneda o unidades
     texto = str(valor).replace('$', '').replace('kg', '').replace('lt', '').replace('un', '').strip()
-    
-    # Reemplazar coma por punto si es decimal simple (ej: 1,5 -> 1.5)
-    # Pero cuidado con miles (1.000,00). 
-    # Estrategia simple: Quitar todo lo que no sea numero, punto o coma
     texto = re.sub(r'[^\d.,-]', '', texto)
-    
     try:
-        # Intentar conversión directa (formato USA: 1000.50)
         return float(texto)
     except:
         try:
-            # Intentar formato Europeo/Latino (1.000,50 -> reemplazar , por .)
-            # Si tiene coma, reemplazamos por punto. Si tiene puntos de miles, los quitamos.
             if ',' in texto and '.' in texto:
                 texto = texto.replace('.', '').replace(',', '.')
             elif ',' in texto:
@@ -90,13 +79,8 @@ def limpiar_numero(valor):
             return 0.0
 
 def limpiar_fecha(fecha_str):
-    """Intenta asegurar que la fecha sea YYYY-MM-DD"""
     if not fecha_str: return "2025-01-01"
-    # Si viene vacía o mal, devolvemos hoy (o una fecha default)
-    # Aquí confiamos en que el prompt de la IA haga su trabajo, 
-    # pero si falla, retornamos la fecha actual para no romper la base.
-    if len(fecha_str) != 10: 
-        return time.strftime("%Y-%m-%d")
+    if len(fecha_str) != 10: return time.strftime("%Y-%m-%d")
     return fecha_str
 
 # --- GESTIÓN USUARIOS ---
@@ -105,7 +89,6 @@ if 'user' not in st.session_state: st.session_state['user'] = None
 def login():
     st.subheader("🌎 Ingreso Global")
     tab1, tab2 = st.tabs(["Ingresar", "Crear Cuenta"])
-    
     with tab1:
         email = st.text_input("Email", key="l_email")
         password = st.text_input("Contraseña", type="password", key="l_pass")
@@ -115,20 +98,16 @@ def login():
                 st.session_state['user'] = session.user
                 st.rerun()
             except: st.error("Datos incorrectos")
-
     with tab2:
         new_email = st.text_input("Email", key="r_email")
         new_pass = st.text_input("Contraseña", type="password", key="r_pass")
         pais = st.selectbox("País", PAISES_SOPORTADOS)
         ciudad = st.text_input("Ciudad")
-        
         if st.button("Registrarme"):
             try:
                 res = supabase.auth.sign_up({"email": new_email, "password": new_pass})
                 if res.user:
-                    supabase.table('perfiles').insert({
-                        "id": res.user.id, "pais": pais, "ciudad": ciudad
-                    }).execute()
+                    supabase.table('perfiles').insert({"id": res.user.id, "pais": pais, "ciudad": ciudad}).execute()
                     st.success("Cuenta creada.")
             except Exception as e: st.error(f"Error: {e}")
 
@@ -139,13 +118,12 @@ def logout():
 
 # --- GUARDADO ---
 def guardar_en_supabase(data):
-    try:
-        user_id = st.session_state['user'].id
+    try: user_id = st.session_state['user'].id
     except: user_id = None 
 
     nombre_super = data['supermercado'].strip().upper()
     
-    # Supermercado
+    # Busca/Crea Supermercado (Ahora incluirá la sucursal, ej: "COTO SUC 188")
     res_super = supabase.table('supermercados').select('id').ilike('nombre', nombre_super).execute()
     if res_super.data:
         super_id = res_super.data[0]['id']
@@ -153,16 +131,14 @@ def guardar_en_supabase(data):
         res_new = supabase.table('supermercados').insert({"nombre": nombre_super}).execute()
         super_id = res_new.data[0]['id']
 
-    # Ticket (Limpiando fecha)
     fecha_limpia = limpiar_fecha(data['fecha'])
-    
     ticket_data = {
         "user_id": user_id,
         "supermercado_id": super_id,
         "fecha": fecha_limpia,
         "hora": data['hora'],
         "monto_total": limpiar_numero(data['total_pagado']),
-        "imagen_url": "cloud_v4_cleaned",
+        "imagen_url": "cloud_v3.2_sucursal",
         "sucursal_direccion": data.get('sucursal_direccion'),
         "sucursal_localidad": data.get('sucursal_localidad'),
         "sucursal_provincia": data.get('sucursal_provincia'),
@@ -173,7 +149,6 @@ def guardar_en_supabase(data):
     try:
         res_ticket = supabase.table('tickets').insert(ticket_data).execute()
         ticket_id = res_ticket.data[0]['id']
-        
         items = []
         for item in data['items']:
             items.append({
@@ -185,41 +160,46 @@ def guardar_en_supabase(data):
                 "rubro": item.get('rubro'),
                 "marca": item.get('marca'),
                 "producto_generico": item.get('producto_generico'),
-                "contenido_neto": limpiar_numero(item.get('contenido_neto')), # LIMPIEZA CLAVE
+                "contenido_neto": limpiar_numero(item.get('contenido_neto')),
                 "unidad_contenido": item.get('unidad_contenido')
             })
-            
         supabase.table('items_compra').insert(items).execute()
         return len(items)
-        
     except Exception as e:
-        # MOSTRAMOS EL ERROR DETALLADO EN PANTALLA
-        st.error(f"❌ Error Técnico al guardar: {e}")
+        st.error(f"❌ Error DB: {e}")
         if "unique" in str(e).lower(): return "DUPLICADO"
         return False
 
 def procesar_imagenes(lista_imagenes):
     contenido = []
     
-    # PROMPT MAS ESTRICTO CON FECHAS
+    # --- PROMPT ACTUALIZADO PARA SUCURSALES ---
     prompt = f"""
-    Analiza este ticket.
+    Analiza este ticket de compra.
     
-    IMPORTANTE FECHAS: Busca la fecha de compra. Formato de salida OBLIGATORIO: YYYY-MM-DD (Ej: 2025-12-25).
-    Si el año es ambiguo (ej: 25), asume 2025.
+    1. SUPERMERCADO (IMPORTANTE):
+       - Extrae el NOMBRE COMERCIAL + SUCURSAL/LOCALIDAD.
+       - Ejemplos: "JUMBO UNICENTER", "COTO SUC 64", "CARREFOUR VTE LOPEZ".
+       - Si no dice sucursal, usa la dirección para distinguirlo (Ej: "DIA AV MAIPU").
     
-    IMPORTANTE NÚMEROS: En 'contenido_neto' devuelve SOLO el número (ej: 1.5), pon la unidad (kg, lt) en 'unidad_contenido'.
+    2. FECHA Y MONEDA:
+       - Fecha: YYYY-MM-DD.
+       - Moneda: ISO Code (ARS, USD, BRL).
+    
+    3. PRODUCTOS:
+       - Extrae marca, genérico, rubro (de la lista permitida), contenido y unidad.
+       - Contenido Neto: SOLO números (ej: 1.5). Unidad en campo aparte.
     
     Rubros: {RUBROS_VALIDOS}
     
     JSON Estricto:
     {{
-        "supermercado": "Nombre",
+        "supermercado": "Nombre + Sucursal",
         "sucursal_direccion": "Calle...",
         "sucursal_localidad": "Ciudad",
         "sucursal_provincia": "Provincia",
         "sucursal_pais": "País",
-        "moneda": "ISO Code",
+        "moneda": "ISO",
         "fecha": "YYYY-MM-DD",
         "hora": "HH:MM",
         "nro_ticket": "str",
@@ -232,7 +212,7 @@ def procesar_imagenes(lista_imagenes):
                 "precio_neto_final": num,
                 "marca": "Marca",
                 "producto_generico": "Nombre limpio",
-                "rubro": "Rubro de lista",
+                "rubro": "Rubro",
                 "contenido_neto": num,
                 "unidad_contenido": "Unidad"
             }}
@@ -240,8 +220,7 @@ def procesar_imagenes(lista_imagenes):
     }}
     """
     contenido.append(prompt)
-    for img in lista_imagenes:
-        contenido.append(Image.open(img))
+    for img in lista_imagenes: contenido.append(Image.open(img))
 
     try:
         response = client.models.generate_content(
@@ -263,6 +242,7 @@ else:
         if st.button("Salir"): logout()
 
     st.title("🛒 Club de Precios")
+    st.caption("v3.2 - Sucursales Detalladas")
     
     img = st.camera_input("📸 Ticket")
     if 'fotos' not in st.session_state: st.session_state['fotos'] = []
@@ -283,15 +263,15 @@ else:
             st.rerun()
             
         if c2.button("🚀 PROCESAR"):
-            with st.spinner("🌎 Analizando..."):
+            with st.spinner("🏢 Identificando sucursal y precios..."):
                 data = procesar_imagenes(st.session_state['fotos'])
                 if data:
                     res = guardar_en_supabase(data)
                     if res == "DUPLICADO": st.warning("⚠️ Ya existe")
                     elif res:
                         st.balloons()
-                        st.success(f"✅ {res} items guardados del día **{data['fecha']}**")
+                        # Mostramos qué sucursal detectó
+                        st.success(f"✅ Cargado en **{data['supermercado']}** ({res} items)")
                         st.session_state['fotos'] = []
                         time.sleep(3)
                         st.rerun()
-                    # Si falla, el error exacto saldrá en pantalla roja gracias al cambio en 'guardar_en_supabase'
