@@ -9,38 +9,49 @@ from google import genai
 from google.genai import types
 from supabase import create_client, Client
 
-# 1. CONFIGURACIÓN VISUAL (LAYOUT WIDE + SIDEBAR COLAPSADA)
+# --- 1. CONFIGURACIÓN: Layout Wide y Sidebar colapsada ---
 st.set_page_config(page_title="Club Precios", page_icon="🛒", layout="wide", initial_sidebar_state="collapsed")
 
-# 2. ESTILOS CSS AGRESIVOS PARA MÓVIL
-# Padding-top: 4rem baja todo el contenido para que no lo tape el menú superior.
-# Padding-left/right: 0rem elimina los márgenes laterales para que la cámara ocupe todo.
+# --- 2. ESTILOS CSS (CORREGIDOS PARA NO BORRAR EL MENÚ) ---
 st.markdown("""
     <style>
+        /* Ajustar márgenes generales */
         .block-container {
-            padding-top: 4rem !important;
-            padding-bottom: 2rem !important;
-            padding-left: 0.5rem !important;
-            padding-right: 0.5rem !important;
-            max-width: 100% !important;
+            padding-top: 3rem !important; /* Dejamos espacio para el menú */
+            padding-bottom: 1rem !important;
+            padding-left: 0.2rem !important; /* Casi al borde */
+            padding-right: 0.2rem !important;
         }
+        
+        /* Título más compacto */
         h1 { 
-            font-size: 1.6rem !important; 
-            margin-bottom: 0.2rem !important;
-            margin-top: 0rem !important;
+            font-size: 1.5rem !important; 
+            margin-bottom: 0.5rem !important;
         }
-        /* Botones grandes y fáciles de tocar */
+
+        /* FORZAR CÁMARA AL 100% DEL ANCHO */
+        div[data-testid="stCameraInput"] {
+            width: 100% !important;
+        }
+        div[data-testid="stCameraInput"] video {
+            width: 100% !important;
+            border-radius: 12px;
+            object-fit: cover; /* Asegura que llene el recuadro */
+        }
+
+        /* Botones grandes */
         .stButton button { 
             width: 100%; 
-            border-radius: 12px; 
-            height: 3.5rem; 
-            font-size: 1.2rem; 
-            font-weight: bold;
+            border-radius: 10px; 
+            height: 3rem; 
+            font-size: 1.1rem;
+            font-weight: 600;
         }
-        /* Ocultar elementos molestos de Streamlit */
-        #MainMenu {visibility: hidden;}
-        header {visibility: hidden;}
-        footer {visibility: hidden;}
+        
+        /* MENSAJE DE AYUDA COMPACTO */
+        .stAlert {
+            padding: 0.5rem !important;
+        }
     </style>
 """, unsafe_allow_html=True)
 
@@ -124,7 +135,6 @@ def login():
         with st.form("login_form"):
             email = st.text_input("Email")
             password = st.text_input("Contraseña", type="password")
-            # Botón de submit que evita el doble click
             if st.form_submit_button("Entrar", use_container_width=True):
                 try:
                     session = supabase.auth.sign_in_with_password({"email": email, "password": password})
@@ -167,7 +177,7 @@ def guardar_en_supabase(data):
     ticket_data = {
         "user_id": user_id, "supermercado_id": super_id, "fecha": limpiar_fecha(data['fecha']),
         "hora": data['hora'], "monto_total": limpiar_numero(data['total_pagado']),
-        "imagen_url": "v4.0_mobile_ui", "sucursal_direccion": data.get('sucursal_direccion'),
+        "imagen_url": "v4.1_fixed", "sucursal_direccion": data.get('sucursal_direccion'),
         "sucursal_localidad": data.get('sucursal_localidad'), "sucursal_provincia": data.get('sucursal_provincia'),
         "sucursal_pais": data.get('sucursal_pais'), "moneda": data.get('moneda')
     }
@@ -193,7 +203,7 @@ def guardar_en_supabase(data):
 def procesar_imagenes(lista_imagenes):
     contenido = []
     prompt = f"""
-    Analiza este ticket.
+    Analiza este ticket de compra.
     1. SUPERMERCADO: Extrae NOMBRE + SUCURSAL.
     2. FECHA Y MONEDA: Fecha (YYYY-MM-DD) y Moneda ISO (ARS, BRL, USD).
     3. PRODUCTOS: Marca, genérico, rubro (de la lista), contenido y unidad.
@@ -229,13 +239,13 @@ else:
         st.write(f"{st.session_state['user'].email}")
         if st.button("Salir"): logout()
 
-    # TÍTULO (VERSIONADO para saber si actualizó)
-    st.markdown("### 🛒 Club v4.0")
+    # TÍTULO (V4.1 para que chequees actualización)
+    st.markdown("### 🛒 Club v4.1")
     
-    # MENSAJE DE AYUDA CLARO
-    st.info("ℹ️ **IMPORTANTE:** Si el ticket es largo, toma varias fotos secuenciales ('Nueva Foto') superponiendo renglones. La IA unirá todo.")
+    # MENSAJE DE AYUDA (Texto corregido y compacto)
+    st.info("ℹ️ **Tip:** Si el ticket es largo, usa **Nueva Foto** para capturarlo por partes.")
 
-    # CÁMARA (Sin etiqueta para ahorrar espacio)
+    # CÁMARA (Ocupa todo el ancho por CSS)
     img = st.camera_input("Toma la foto del ticket", label_visibility="collapsed")
     
     if 'fotos' not in st.session_state: st.session_state['fotos'] = []
@@ -243,13 +253,11 @@ else:
     if img:
         if not st.session_state['fotos'] or st.session_state['fotos'][-1].getvalue() != img.getvalue():
             st.session_state['fotos'].append(img)
-            st.toast("✅ Foto agregada")
+            st.toast("✅ Capturada")
 
     if st.session_state['fotos']:
-        st.divider()
         st.write(f"🎞️ **{len(st.session_state['fotos'])} fotos listas**")
         
-        # Galería
         cols = st.columns(len(st.session_state['fotos']))
         for i, f in enumerate(st.session_state['fotos']): cols[i].image(f, width=80)
 
@@ -266,7 +274,7 @@ else:
                     if res == "DUPLICADO": st.warning("⚠️ Ya cargaste este ticket.")
                     elif res:
                         st.balloons()
-                        # --- RESUMEN FINAL SOLICITADO ---
+                        # --- RESUMEN FINAL ---
                         total_fmt = f"{data.get('moneda','$')} {data.get('total_pagado')}"
                         st.success(f"✅ **¡Carga Exitosa!**")
                         
