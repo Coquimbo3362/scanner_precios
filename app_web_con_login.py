@@ -9,49 +9,49 @@ from google import genai
 from google.genai import types
 from supabase import create_client, Client
 
-# --- 1. CONFIGURACIÓN: Layout Wide y Sidebar colapsada ---
+# --- 1. CONFIGURACIÓN ---
 st.set_page_config(page_title="Club Precios", page_icon="🛒", layout="wide", initial_sidebar_state="collapsed")
 
-# --- 2. ESTILOS CSS (CORREGIDOS PARA NO BORRAR EL MENÚ) ---
+# --- 2. CSS PARA FORZAR CÁMARA VERTICAL (TALLER) ---
 st.markdown("""
     <style>
-        /* Ajustar márgenes generales */
+        /* Ajustar márgenes para ganar espacio */
         .block-container {
-            padding-top: 3rem !important; /* Dejamos espacio para el menú */
-            padding-bottom: 1rem !important;
-            padding-left: 0.2rem !important; /* Casi al borde */
-            padding-right: 0.2rem !important;
+            padding-top: 3.5rem !important;
+            padding-bottom: 5rem !important; /* Espacio abajo para el botón */
+            padding-left: 0.1rem !important;
+            padding-right: 0.1rem !important;
         }
         
-        /* Título más compacto */
-        h1 { 
-            font-size: 1.5rem !important; 
-            margin-bottom: 0.5rem !important;
-        }
+        /* Título */
+        h1 { font-size: 1.4rem !important; margin-bottom: 0.5rem; text-align: center; }
 
-        /* FORZAR CÁMARA AL 100% DEL ANCHO */
+        /* --- TRUCO PARA CÁMARA VERTICAL --- */
         div[data-testid="stCameraInput"] {
             width: 100% !important;
         }
+        
         div[data-testid="stCameraInput"] video {
             width: 100% !important;
-            border-radius: 12px;
-            object-fit: cover; /* Asegura que llene el recuadro */
+            /* Forzamos altura mínima para que se vea vertical */
+            min-height: 400px !important; 
+            max-height: 70vh !important; 
+            object-fit: cover !important; /* Que la imagen llene el espacio */
+            border-radius: 15px;
         }
 
-        /* Botones grandes */
+        /* Botones Gigantes */
         .stButton button { 
             width: 100%; 
-            border-radius: 10px; 
-            height: 3rem; 
-            font-size: 1.1rem;
-            font-weight: 600;
+            border-radius: 30px; /* Bordes redondos modernos */
+            height: 3.5rem; 
+            font-size: 1.2rem;
+            font-weight: bold;
+            box-shadow: 0px 4px 6px rgba(0,0,0,0.2);
         }
         
-        /* MENSAJE DE AYUDA COMPACTO */
-        .stAlert {
-            padding: 0.5rem !important;
-        }
+        /* Ocultar textos pequeños molestos */
+        small { display: none; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -128,7 +128,7 @@ def limpiar_fecha(fecha_str):
 if 'user' not in st.session_state: st.session_state['user'] = None
 
 def login():
-    st.markdown("### 🌎 Ingreso Global")
+    st.markdown("### 🌎 Ingreso")
     tab1, tab2 = st.tabs(["Ingresar", "Crear Cuenta"])
     
     with tab1:
@@ -177,7 +177,7 @@ def guardar_en_supabase(data):
     ticket_data = {
         "user_id": user_id, "supermercado_id": super_id, "fecha": limpiar_fecha(data['fecha']),
         "hora": data['hora'], "monto_total": limpiar_numero(data['total_pagado']),
-        "imagen_url": "v4.1_fixed", "sucursal_direccion": data.get('sucursal_direccion'),
+        "imagen_url": "v4.2_vertical", "sucursal_direccion": data.get('sucursal_direccion'),
         "sucursal_localidad": data.get('sucursal_localidad'), "sucursal_provincia": data.get('sucursal_provincia'),
         "sucursal_pais": data.get('sucursal_pais'), "moneda": data.get('moneda')
     }
@@ -239,25 +239,26 @@ else:
         st.write(f"{st.session_state['user'].email}")
         if st.button("Salir"): logout()
 
-    # TÍTULO (V4.1 para que chequees actualización)
-    st.markdown("### 🛒 Club v4.1")
+    # TÍTULO
+    st.markdown("<h3 style='text-align: center;'>🛒 Club v4.2</h3>", unsafe_allow_html=True)
     
-    # MENSAJE DE AYUDA (Texto corregido y compacto)
-    st.info("ℹ️ **Tip:** Si el ticket es largo, usa **Nueva Foto** para capturarlo por partes.")
+    # MENSAJE DE AYUDA (Minimalista)
+    st.info("📸 **Tip:** Usa el celular **VERTICAL**. Saca varias fotos de cerca (Arriba, Medio, Abajo).")
 
-    # CÁMARA (Ocupa todo el ancho por CSS)
-    img = st.camera_input("Toma la foto del ticket", label_visibility="collapsed")
+    # CÁMARA (Estirada por CSS)
+    img = st.camera_input("Tomar Foto", label_visibility="collapsed")
     
     if 'fotos' not in st.session_state: st.session_state['fotos'] = []
     
     if img:
         if not st.session_state['fotos'] or st.session_state['fotos'][-1].getvalue() != img.getvalue():
             st.session_state['fotos'].append(img)
-            st.toast("✅ Capturada")
+            st.toast("✅ Guardada")
 
     if st.session_state['fotos']:
-        st.write(f"🎞️ **{len(st.session_state['fotos'])} fotos listas**")
+        st.write(f"🎞️ **{len(st.session_state['fotos'])} fotos listas para procesar**")
         
+        # Galería
         cols = st.columns(len(st.session_state['fotos']))
         for i, f in enumerate(st.session_state['fotos']): cols[i].image(f, width=80)
 
@@ -266,7 +267,8 @@ else:
             st.session_state['fotos'] = []
             st.rerun()
             
-        if c2.button("🚀 PROCESAR", type="primary", use_container_width=True):
+        # Botón verde y grande
+        if c2.button("🚀 PROCESAR TICKET", type="primary", use_container_width=True):
             with st.spinner("⏳ Analizando..."):
                 data = procesar_imagenes(st.session_state['fotos'])
                 if data:
