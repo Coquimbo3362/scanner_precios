@@ -9,33 +9,33 @@ from google import genai
 from google.genai import types
 from supabase import create_client, Client
 
-# --- 1. CONFIGURACIÓN ---
-st.set_page_config(page_title="Club Precios", page_icon="🛒", layout="wide", initial_sidebar_state="collapsed")
+# --- 1. CONFIGURACIÓN VISUAL ---
+st.set_page_config(page_title="Club de Precios", page_icon="🛒", layout="wide", initial_sidebar_state="collapsed")
 
-# --- CSS (Mantenemos el diseño grande) ---
+# CSS: Títulos centrados, botones grandes, ocultar menú default
 st.markdown("""
     <style>
         .block-container {
             padding-top: 3rem !important;
-            padding-bottom: 5rem !important;
-            padding-left: 0.1rem !important;
-            padding-right: 0.1rem !important;
+            padding-bottom: 2rem !important;
         }
-        h1 { font-size: 1.4rem !important; margin-bottom: 0.5rem; text-align: center; }
-        div[data-testid="stCameraInput"], div[data-testid="stFileUploader"] {
+        h1 { font-size: 1.8rem !important; text-align: center; margin-bottom: 1rem; }
+        
+        /* Botón de Carga de Archivos Grande */
+        div[data-testid="stFileUploader"] {
             width: 100% !important;
-        }
-        div[data-testid="stCameraInput"] video {
+            padding: 20px;
+            border: 2px dashed #4CAF50;
             border-radius: 15px;
-            min-height: 400px !important;
-            object-fit: cover !important;
+            text-align: center;
         }
+        
+        /* Botón Procesar */
         .stButton button { 
             width: 100%; border-radius: 30px; height: 3.5rem; 
             font-size: 1.2rem; font-weight: bold;
-            box-shadow: 0px 4px 6px rgba(0,0,0,0.2);
+            background-color: #FF4B4B; color: white;
         }
-        small { display: none; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -87,7 +87,7 @@ RUBROS_VALIDOS = """
 - Otros
 """
 
-# --- FUNCIONES LIMPIEZA ---
+# --- FUNCIONES DE LIMPIEZA ---
 def limpiar_numero(valor):
     if not valor: return 0.0
     if isinstance(valor, (int, float)): return float(valor)
@@ -110,7 +110,7 @@ def limpiar_fecha(fecha_str):
 if 'user' not in st.session_state: st.session_state['user'] = None
 
 def login():
-    st.markdown("### 🌎 Ingreso")
+    st.markdown("### 🌎 Ingreso Global")
     tab1, tab2 = st.tabs(["Ingresar", "Crear Cuenta"])
     with tab1:
         with st.form("login_form"):
@@ -142,7 +142,7 @@ def logout():
     st.session_state['user'] = None
     st.rerun()
 
-# --- PROCESAMIENTO ---
+# --- BACKEND ---
 def guardar_en_supabase(data):
     try: user_id = st.session_state['user'].id
     except: user_id = None 
@@ -157,7 +157,7 @@ def guardar_en_supabase(data):
     ticket_data = {
         "user_id": user_id, "supermercado_id": super_id, "fecha": limpiar_fecha(data['fecha']),
         "hora": data['hora'], "monto_total": limpiar_numero(data['total_pagado']),
-        "imagen_url": "v4.3_upload", "sucursal_direccion": data.get('sucursal_direccion'),
+        "imagen_url": "v4.4_upload_only", "sucursal_direccion": data.get('sucursal_direccion'),
         "sucursal_localidad": data.get('sucursal_localidad'), "sucursal_provincia": data.get('sucursal_provincia'),
         "sucursal_pais": data.get('sucursal_pais'), "moneda": data.get('moneda')
     }
@@ -183,24 +183,28 @@ def guardar_en_supabase(data):
 def procesar_imagenes(lista_imagenes):
     contenido = []
     
-    # PROMPT MAS ESTRICTO CONTRA ALUCINACIONES
+    # --- PROMPT REFORZADO ANTIDUPLICADOS ---
     prompt = f"""
-    Analiza este ticket de compra REAL. NO INVENTES PRODUCTOS que no se lean claramente.
+    Analiza este ticket de compra.
     
-    1. SUPERMERCADO: Busca "JUMBO UNICENTER", "COTO SUC...", etc.
-    2. ITEMS: 
-       - Si hay descuentos (ej: "ANSES", "Frescos Pas") RESTALOS del precio. Quiero el precio FINAL que pagó el cliente.
-       - Si la imagen está borrosa, lee solo lo que estés 100% seguro.
+    REGLA DE ORO ANTIDUPLICADOS:
+    - Muchos tickets escriben el nombre del producto en 2 líneas. EJEMPLO: "Queso Barra" (renglón 1) y "Jumbo Tripack" (renglón 2).
+    - ESO ES UN SOLO PRODUCTO. No crees dos items separados. Únelos: "Queso Barra Jumbo Tripack".
+    - Verifica que el precio no se repita exactamente en el renglón siguiente.
+    
+    1. SUPERMERCADO: Extrae NOMBRE + SUCURSAL (ej: JUMBO UNICENTER).
+    2. FECHA Y MONEDA: Fecha YYYY-MM-DD.
+    3. PRODUCTOS: Marca, genérico, rubro (de la lista), contenido y unidad.
     
     Rubros: {RUBROS_VALIDOS}
     
     JSON Estricto:
     {{
-        "supermercado": "Nombre Sucursal", "sucursal_direccion": "Str", "sucursal_localidad": "Str",
-        "sucursal_provincia": "Str", "sucursal_pais": "Str", "moneda": "ISO",
+        "supermercado": "Str", "sucursal_direccion": "Str", "sucursal_localidad": "Str",
+        "sucursal_provincia": "Str", "sucursal_pais": "Str", "moneda": "Str",
         "fecha": "YYYY-MM-DD", "hora": "HH:MM", "nro_ticket": "str", "total_pagado": num,
         "items": [
-            {{ "nombre": "Nombre Real", "cantidad": num, "unidad_medida": "Un/Kg", "precio_neto_final": num,
+            {{ "nombre": "Nombre Completo Unido", "cantidad": num, "unidad_medida": "Str", "precio_neto_final": num,
                "marca": "Str", "producto_generico": "Str", "rubro": "Str", "contenido_neto": num, "unidad_contenido": "Str" }}
         ]
     }}
@@ -225,57 +229,41 @@ else:
         st.write(f"{st.session_state['user'].email}")
         if st.button("Salir"): logout()
 
-    st.markdown("<h3 style='text-align: center;'>🛒 Club v4.3</h3>", unsafe_allow_html=True)
+    # TÍTULO CORREGIDO
+    st.markdown("<h1>🛒 Club de Precios v4.4</h1>", unsafe_allow_html=True)
     
-    # PESTAÑAS: CAMARA vs SUBIR
-    tab_cam, tab_up = st.tabs(["📸 Usar Cámara", "📂 Subir Foto (Mejor Calidad)"])
-    
-    if 'fotos' not in st.session_state: st.session_state['fotos'] = []
+    st.info("💡 Saca fotos nítidas (con Flash) usando tu cámara y súbelas aquí. Si el ticket es largo, sube varias fotos (parte 1, parte 2).")
 
-    # Opción 1: Cámara Web
-    with tab_cam:
-        st.info("Para tickets rápidos.")
-        img_cam = st.camera_input("Foto", label_visibility="collapsed")
-        if img_cam:
-            if not st.session_state['fotos'] or st.session_state['fotos'][-1].getvalue() != img_cam.getvalue():
-                st.session_state['fotos'].append(img_cam)
-                st.toast("✅ Capturada")
+    # SOLO SUBIDA DE ARCHIVOS (Múltiples permitidos)
+    uploaded_files = st.file_uploader("📂 Toca aquí para subir las fotos del ticket", accept_multiple_files=True, type=['jpg','png','jpeg'])
 
-    # Opción 2: Subir archivo (Permite Flash y Zoom)
-    with tab_up:
-        st.info("💡 **Recomendado:** Saca la foto con la cámara de tu celular (con Flash) y súbela aquí.")
-        uploaded_files = st.file_uploader("Selecciona fotos", accept_multiple_files=True, type=['jpg','png','jpeg'])
-        if uploaded_files:
-            # Reemplazamos la lista con lo que suba
-            st.session_state['fotos'] = uploaded_files
-
-    # --- ZONA DE PROCESAMIENTO ---
-    if st.session_state['fotos']:
-        st.divider()
-        st.write(f"🎞️ **{len(st.session_state['fotos'])} imágenes seleccionadas**")
+    # BOTÓN DE PROCESAR
+    if uploaded_files:
+        st.write(f"🎞️ **{len(uploaded_files)} imágenes cargadas**")
         
-        cols = st.columns(len(st.session_state['fotos']))
-        for i, f in enumerate(st.session_state['fotos']): cols[i].image(f, width=80)
-
-        c1, c2 = st.columns(2)
-        if c1.button("🗑️ Limpiar", use_container_width=True): 
-            st.session_state['fotos'] = []
-            st.rerun()
-            
-        if c2.button("🚀 PROCESAR TICKET", type="primary", use_container_width=True):
-            with st.spinner("🧠 Leyendo ticket con máxima precisión..."):
-                data = procesar_imagenes(st.session_state['fotos'])
+        # Botón bien grande rojo
+        if st.button("🚀 PROCESAR TICKET", type="primary", use_container_width=True):
+            with st.spinner("🧠 Analizando e unificando productos..."):
+                data = procesar_imagenes(uploaded_files)
+                
                 if data:
                     res = guardar_en_supabase(data)
-                    if res == "DUPLICADO": st.warning("⚠️ Ya existe.")
+                    
+                    if res == "DUPLICADO":
+                        st.warning("⚠️ Ya cargaste este ticket anteriormente.")
                     elif res:
                         st.balloons()
+                        # --- INFORME DE RESULTADOS (SIN BORRARSE) ---
+                        st.success(f"✅ **¡Ticket Cargado Correctamente!**")
+                        
+                        # Tarjetas de métricas
+                        c1, c2, c3 = st.columns(3)
                         total_fmt = f"{data.get('moneda','$')} {data.get('total_pagado')}"
-                        st.success(f"✅ **¡Carga Exitosa!**")
-                        c1, c2 = st.columns(2)
-                        c1.metric("Items", res)
-                        c2.metric("Total", total_fmt)
-                        st.caption(f"📍 {data.get('supermercado')}")
-                        st.session_state['fotos'] = []
-                        time.sleep(6)
-                        st.rerun()
+                        c1.metric("Supermercado", data.get('supermercado'))
+                        c2.metric("Items", res)
+                        c3.metric("Total Pagado", total_fmt)
+                        
+                        st.markdown("---")
+                        st.write("**Para cargar otro ticket:** Elimina las fotos de arriba (X) o refresca la página.")
+                    else:
+                        st.error("Hubo un error al guardar los datos.")
