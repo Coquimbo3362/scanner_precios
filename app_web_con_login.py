@@ -9,6 +9,7 @@ from google import genai
 from google.genai import types
 from supabase import create_client, Client
 
+
 # --- 1. CONFIGURACIÓN VISUAL ---
 st.set_page_config(page_title="Club de Precios", page_icon="🛒", layout="wide", initial_sidebar_state="collapsed")
 
