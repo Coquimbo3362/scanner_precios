@@ -9,33 +9,34 @@ from google import genai
 from google.genai import types
 from supabase import create_client, Client
 
-
 # --- 1. CONFIGURACIÓN VISUAL ---
 st.set_page_config(page_title="Club de Precios", page_icon="🛒", layout="wide", initial_sidebar_state="collapsed")
 
-# CSS: Títulos centrados, botones grandes, ocultar menú default
+# CSS: Estilos para la Landing Page y la App
 st.markdown("""
     <style>
+        /* Ajuste de márgenes */
         .block-container {
-            padding-top: 3rem !important;
-            padding-bottom: 2rem !important;
-        }
-        h1 { font-size: 1.8rem !important; text-align: center; margin-bottom: 1rem; }
-        
-        /* Botón de Carga de Archivos Grande */
-        div[data-testid="stFileUploader"] {
-            width: 100% !important;
-            padding: 20px;
-            border: 2px dashed #4CAF50;
-            border-radius: 15px;
-            text-align: center;
+            padding-top: 2rem !important;
+            padding-bottom: 3rem !important;
         }
         
-        /* Botón Procesar */
+        /* Títulos */
+        h1 { font-size: 2rem !important; text-align: center; margin-bottom: 0.5rem; color: #FF4B4B; }
+        h3 { text-align: center; margin-top: 0; font-weight: 300; }
+        
+        /* Botones Grandes */
         .stButton button { 
             width: 100%; border-radius: 30px; height: 3.5rem; 
-            font-size: 1.2rem; font-weight: bold;
-            background-color: #FF4B4B; color: white;
+            font-size: 1.1rem; font-weight: bold;
+        }
+        
+        /* Área de carga de archivos */
+        div[data-testid="stFileUploader"] {
+            border: 2px dashed #FF4B4B;
+            border-radius: 15px;
+            padding: 20px;
+            text-align: center;
         }
     </style>
 """, unsafe_allow_html=True)
@@ -48,7 +49,7 @@ try:
     GOOGLE_KEY = st.secrets["GOOGLE_API_KEY"] if "GOOGLE_API_KEY" in st.secrets else os.environ.get("GOOGLE_API_KEY")
 
     if not URL or not KEY or not GOOGLE_KEY:
-        st.error("❌ Faltan claves.")
+        st.error("❌ Faltan claves de configuración.")
         st.stop()
 
     supabase: Client = create_client(URL, KEY)
@@ -56,10 +57,11 @@ try:
     MODELO_IA = 'gemini-2.5-flash' 
 
 except Exception as e:
-    st.error(f"Error config: {e}")
+    st.error(f"Error de sistema: {e}")
     st.stop()
 
-PAISES_SOPORTADOS = ["Argentina", "Brasil", "Uruguay", "Chile", "Paraguay", "Bolivia", "Perú", "Colombia", "México", "España", "USA"]
+# --- DATOS MAESTROS ---
+PAISES_SOPORTADOS = ["Argentina", "Brasil", "Uruguay", "Chile", "Paraguay", "Bolivia", "Perú", "Colombia", "México", "España", "USA", "Otro"]
 
 RUBROS_VALIDOS = """
 - Almacén
@@ -107,35 +109,69 @@ def limpiar_fecha(fecha_str):
     if len(fecha_str) != 10: return time.strftime("%Y-%m-%d")
     return fecha_str
 
-# --- LOGIN ---
+# --- LOGIN (LANDING PAGE) ---
 if 'user' not in st.session_state: st.session_state['user'] = None
 
 def login():
-    st.markdown("### 🌎 Ingreso Global")
-    tab1, tab2 = st.tabs(["Ingresar", "Crear Cuenta"])
+    # --- ENCABEZADO DE MARKETING ---
+    st.markdown("<h1>🛒 Club de Precios</h1>", unsafe_allow_html=True)
+    st.markdown("<h3>La inteligencia colectiva contra la inflación</h3>", unsafe_allow_html=True)
+    
+    st.markdown("""
+    <p style='text-align: center; font-size: 1.1em; color: gray;'>
+        Sube la foto de tu ticket, organizamos tus gastos y comparamos precios automáticamente.
+    </p>
+    """, unsafe_allow_html=True)
+    
+    # --- COLUMNAS DE BENEFICIOS ---
+    st.divider()
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.markdown("<div style='text-align: center;'>📸<br><b>Escanea</b><br>Saca una foto a tu ticket. La IA hace el resto.</div>", unsafe_allow_html=True)
+    with c2:
+        st.markdown("<div style='text-align: center;'>📊<br><b>Controla</b><br>Mira cómo evolucionan tus gastos mes a mes.</div>", unsafe_allow_html=True)
+    with c3:
+        st.markdown("<div style='text-align: center;'>🤝<br><b>Ahorra</b><br>Descubre quién vende más barato en tu zona.</div>", unsafe_allow_html=True)
+    st.divider()
+
+    # --- ZONA DE INGRESO ---
+    st.info("👇 **Comienza ahora**")
+    
+    tab1, tab2 = st.tabs(["🔐 Ya soy Socio", "📝 Quiero unirme Gratis"])
+    
     with tab1:
         with st.form("login_form"):
             email = st.text_input("Email")
             password = st.text_input("Contraseña", type="password")
-            if st.form_submit_button("Entrar", use_container_width=True):
+            if st.form_submit_button("Ingresar", use_container_width=True):
                 try:
                     session = supabase.auth.sign_in_with_password({"email": email, "password": password})
                     st.session_state['user'] = session.user
                     st.rerun()
-                except: st.error("Datos incorrectos")
+                except: st.error("Email o contraseña incorrectos")
+
     with tab2:
         with st.form("register_form"):
-            new_email = st.text_input("Email")
-            new_pass = st.text_input("Contraseña", type="password")
-            c1, c2 = st.columns(2)
+            c_a, c_b = st.columns(2)
+            new_email = c_a.text_input("Tu Email")
+            new_pass = c_b.text_input("Crea una Contraseña", type="password")
+            
+            st.markdown("📍 **¿Dónde haces tus compras?**")
+            c1, c2, c3 = st.columns(3)
             pais = c1.selectbox("País", PAISES_SOPORTADOS)
-            ciudad = c2.text_input("Ciudad")
-            if st.form_submit_button("Registrarme", use_container_width=True):
+            provincia = c2.text_input("Provincia")
+            ciudad = c3.text_input("Ciudad")
+            
+            if st.form_submit_button("Crear Cuenta", use_container_width=True):
                 try:
                     res = supabase.auth.sign_up({"email": new_email, "password": new_pass})
                     if res.user:
-                        supabase.table('perfiles').insert({"id": res.user.id, "pais": pais, "ciudad": ciudad}).execute()
-                        st.success("Cuenta creada.")
+                        try:
+                            supabase.table('perfiles').insert({
+                                "id": res.user.id, "pais": pais, "ciudad": ciudad, "provincia": provincia
+                            }).execute()
+                        except: pass # Si falla el perfil, crea el usuario igual
+                        st.success("¡Cuenta creada! Ya puedes ingresar en la otra pestaña.")
                 except Exception as e: st.error(f"Error: {e}")
 
 def logout():
@@ -143,7 +179,7 @@ def logout():
     st.session_state['user'] = None
     st.rerun()
 
-# --- BACKEND ---
+# --- BACKEND PROCESAMIENTO ---
 def guardar_en_supabase(data):
     try: user_id = st.session_state['user'].id
     except: user_id = None 
@@ -158,7 +194,7 @@ def guardar_en_supabase(data):
     ticket_data = {
         "user_id": user_id, "supermercado_id": super_id, "fecha": limpiar_fecha(data['fecha']),
         "hora": data['hora'], "monto_total": limpiar_numero(data['total_pagado']),
-        "imagen_url": "v4.4_upload_only", "sucursal_direccion": data.get('sucursal_direccion'),
+        "imagen_url": "v4.5_landing", "sucursal_direccion": data.get('sucursal_direccion'),
         "sucursal_localidad": data.get('sucursal_localidad'), "sucursal_provincia": data.get('sucursal_provincia'),
         "sucursal_pais": data.get('sucursal_pais'), "moneda": data.get('moneda')
     }
@@ -184,14 +220,10 @@ def guardar_en_supabase(data):
 def procesar_imagenes(lista_imagenes):
     contenido = []
     
-    # --- PROMPT REFORZADO ANTIDUPLICADOS ---
     prompt = f"""
     Analiza este ticket de compra.
     
-    REGLA DE ORO ANTIDUPLICADOS:
-    - Muchos tickets escriben el nombre del producto en 2 líneas. EJEMPLO: "Queso Barra" (renglón 1) y "Jumbo Tripack" (renglón 2).
-    - ESO ES UN SOLO PRODUCTO. No crees dos items separados. Únelos: "Queso Barra Jumbo Tripack".
-    - Verifica que el precio no se repita exactamente en el renglón siguiente.
+    REGLA DE ORO: Si el nombre del producto ocupa 2 líneas, ÚNELAS. No crees dos items.
     
     1. SUPERMERCADO: Extrae NOMBRE + SUCURSAL (ej: JUMBO UNICENTER).
     2. FECHA Y MONEDA: Fecha YYYY-MM-DD.
@@ -205,7 +237,7 @@ def procesar_imagenes(lista_imagenes):
         "sucursal_provincia": "Str", "sucursal_pais": "Str", "moneda": "Str",
         "fecha": "YYYY-MM-DD", "hora": "HH:MM", "nro_ticket": "str", "total_pagado": num,
         "items": [
-            {{ "nombre": "Nombre Completo Unido", "cantidad": num, "unidad_medida": "Str", "precio_neto_final": num,
+            {{ "nombre": "Nombre Completo", "cantidad": num, "unidad_medida": "Str", "precio_neto_final": num,
                "marca": "Str", "producto_generico": "Str", "rubro": "Str", "contenido_neto": num, "unidad_contenido": "Str" }}
         ]
     }}
@@ -221,7 +253,7 @@ def procesar_imagenes(lista_imagenes):
         st.error(f"Error IA: {e}")
         return None
 
-# --- INTERFAZ PRINCIPAL ---
+# --- APP PRINCIPAL ---
 if not st.session_state['user']:
     login()
 else:
@@ -230,41 +262,35 @@ else:
         st.write(f"{st.session_state['user'].email}")
         if st.button("Salir"): logout()
 
-    # TÍTULO CORREGIDO
-    st.markdown("<h1>🛒 Club de Precios v4.4</h1>", unsafe_allow_html=True)
+    st.markdown("<h1>🛒 Club de Precios v4.5</h1>", unsafe_allow_html=True)
     
-    st.info("💡 Saca fotos nítidas (con Flash) usando tu cámara y súbelas aquí. Si el ticket es largo, sube varias fotos (parte 1, parte 2).")
+    st.info("💡 Usa la **Cámara Nativa** de tu celular (con Flash) para sacar la foto y súbela aquí. Si el ticket es largo, sube varias partes.")
 
-    # SOLO SUBIDA DE ARCHIVOS (Múltiples permitidos)
-    uploaded_files = st.file_uploader("📂 Toca aquí para subir las fotos del ticket", accept_multiple_files=True, type=['jpg','png','jpeg'])
+    uploaded_files = st.file_uploader("📂 Toca para subir fotos del ticket", accept_multiple_files=True, type=['jpg','png','jpeg'])
 
-    # BOTÓN DE PROCESAR
     if uploaded_files:
         st.write(f"🎞️ **{len(uploaded_files)} imágenes cargadas**")
         
-        # Botón bien grande rojo
         if st.button("🚀 PROCESAR TICKET", type="primary", use_container_width=True):
-            with st.spinner("🧠 Analizando e unificando productos..."):
+            with st.spinner("🧠 Analizando..."):
                 data = procesar_imagenes(uploaded_files)
                 
                 if data:
                     res = guardar_en_supabase(data)
                     
                     if res == "DUPLICADO":
-                        st.warning("⚠️ Ya cargaste este ticket anteriormente.")
+                        st.warning("⚠️ Ya cargaste este ticket.")
                     elif res:
                         st.balloons()
-                        # --- INFORME DE RESULTADOS (SIN BORRARSE) ---
-                        st.success(f"✅ **¡Ticket Cargado Correctamente!**")
+                        st.success(f"✅ **¡Carga Exitosa!**")
                         
-                        # Tarjetas de métricas
                         c1, c2, c3 = st.columns(3)
                         total_fmt = f"{data.get('moneda','$')} {data.get('total_pagado')}"
                         c1.metric("Supermercado", data.get('supermercado'))
                         c2.metric("Items", res)
-                        c3.metric("Total Pagado", total_fmt)
+                        c3.metric("Total", total_fmt)
                         
                         st.markdown("---")
-                        st.write("**Para cargar otro ticket:** Elimina las fotos de arriba (X) o refresca la página.")
+                        st.write("**Para cargar otro:** Elimina las fotos de arriba (X) o recarga.")
                     else:
-                        st.error("Hubo un error al guardar los datos.")
+                        st.error("Hubo un error al guardar.")
