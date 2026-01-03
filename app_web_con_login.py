@@ -12,11 +12,12 @@ from supabase import create_client, Client
 # --- 1. CONFIGURACIÓN VISUAL ---
 st.set_page_config(page_title="Club de Precios", page_icon="🛒", layout="wide", initial_sidebar_state="collapsed")
 
-# Estilos CSS
+# CSS Estilos
 st.markdown("""
     <style>
         .block-container { padding-top: 3rem !important; padding-bottom: 2rem !important; }
         h1 { font-size: 1.8rem !important; text-align: center; margin-bottom: 1rem; }
+        
         div[data-testid="stFileUploader"] {
             width: 100% !important; padding: 15px; border: 2px dashed #4CAF50; border-radius: 15px; text-align: center;
         }
@@ -46,7 +47,21 @@ except Exception as e:
     st.error(f"Error config: {e}")
     st.stop()
 
+# --- DATOS MAESTROS ---
 PAISES_SOPORTADOS = ["Argentina", "Brasil", "Uruguay", "Chile", "Paraguay", "Bolivia", "Perú", "Colombia", "México", "España", "USA", "Otro"]
+
+# Códigos para WhatsApp (E.164)
+CODIGOS_PAIS = {
+    "Argentina 🇦🇷": "+549", # El 9 es clave para celulares Arg
+    "Brasil 🇧🇷": "+55",
+    "Uruguay 🇺🇾": "+598",
+    "Chile 🇨🇱": "+56",
+    "México 🇲🇽": "+52",
+    "Colombia 🇨🇴": "+57",
+    "España 🇪🇸": "+34",
+    "USA 🇺🇸": "+1",
+    "Otro": "+"
+}
 
 RUBROS_VALIDOS = """
 - Almacén
@@ -94,7 +109,7 @@ def limpiar_fecha(fecha_str):
     if len(fecha_str) != 10: return time.strftime("%Y-%m-%d")
     return fecha_str
 
-# --- LOGIN MEJORADO ---
+# --- LOGIN ---
 if 'user' not in st.session_state: st.session_state['user'] = None
 
 def login():
@@ -109,9 +124,9 @@ def login():
             try:
                 session = supabase.auth.sign_in_with_password({"email": email, "password": password})
                 st.session_state['user'] = session.user
-                st.rerun() # Recarga inmediata si fue exitoso
+                st.rerun()
             except:
-                st.error("Email o contraseña incorrectos. Intenta de nuevo.")
+                st.error("Email o contraseña incorrectos.")
 
     with tab2:
         new_email = st.text_input("Email Reg")
@@ -150,7 +165,7 @@ def guardar_en_supabase(data):
     ticket_data = {
         "user_id": user_id, "supermercado_id": super_id, "fecha": limpiar_fecha(data['fecha']),
         "hora": data['hora'], "monto_total": limpiar_numero(data['total_pagado']),
-        "imagen_url": "v4.7_autoclear", "sucursal_direccion": data.get('sucursal_direccion'),
+        "imagen_url": "v4.8_whatsapp_prep", "sucursal_direccion": data.get('sucursal_direccion'),
         "sucursal_localidad": data.get('sucursal_localidad'), "sucursal_provincia": data.get('sucursal_provincia'),
         "sucursal_pais": data.get('sucursal_pais'), "moneda": data.get('moneda')
     }
@@ -205,22 +220,60 @@ def procesar_imagenes(lista_imagenes):
 if not st.session_state['user']:
     login()
 else:
+    # --- SIDEBAR (Menú Lateral Actualizado) ---
     with st.sidebar:
-        st.header("👤 Cuenta")
-        st.write(f"{st.session_state['user'].email}")
+        st.header("👤 Mi Cuenta")
+        st.write(f"Email: {st.session_state['user'].email}")
+        
+        # --- CONFIGURAR WHATSAPP ---
+        with st.expander("📱 Vincular Celular", expanded=True):
+            try:
+                # Buscar datos actuales
+                perfil = supabase.table('perfiles').select('telefono, pais').eq('id', st.session_state['user'].id).execute().data
+                tel_actual = perfil[0].get('telefono', '') if perfil else ""
+                pais_actual = perfil[0].get('pais', 'Argentina') if perfil else "Argentina"
+            except:
+                tel_actual = ""
+                pais_actual = "Argentina"
+
+            # Auto-detectar país en el selector
+            pais_key_match = next((k for k in CODIGOS_PAIS if pais_actual in k), "Argentina 🇦🇷")
+            
+            sel_pais = st.selectbox("Código País", list(CODIGOS_PAIS.keys()), index=list(CODIGOS_PAIS.keys()).index(pais_key_match) if pais_key_match in CODIGOS_PAIS else 0)
+            prefijo = CODIGOS_PAIS[sel_pais]
+            
+            # Limpiar prefijo para mostrar solo el número local
+            display_num = tel_actual.replace(prefijo, "") if tel_actual.startswith(prefijo) else tel_actual
+            
+            numero_local = st.text_input("Número (sin 0 ni 15)", value=display_num, placeholder="1122334455")
+            
+            if st.button("Guardar Teléfono"):
+                tel_final = f"{prefijo}{numero_local}".strip()
+                try:
+                    # Guardamos usando UPSERT por si el perfil no existía
+                    datos = {"id": st.session_state['user'].id, "telefono": tel_final, "pais": pais_actual}
+                    supabase.table('perfiles').upsert(datos).execute()
+                    st.success("✅ Guardado")
+                    time.sleep(1)
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error: {e}")
+
+        if tel_actual:
+            st.caption(f"📞 Registrado: {tel_actual}")
+        
+        st.divider()
         if st.button("Salir"): logout()
 
-    st.markdown("<h1>🛒 Club de Precios v4.7</h1>", unsafe_allow_html=True)
+    # --- PANTALLA PRINCIPAL ---
+    st.markdown("<h1>🛒 Club de Precios v4.8</h1>", unsafe_allow_html=True)
     st.info("💡 **Tip:** Mantén apretada una foto en tu galería para seleccionar varias a la vez.")
 
-    # TRUCO DE LIMPIEZA: Usamos un key dinámico
     if 'uploader_key' not in st.session_state: st.session_state['uploader_key'] = 0
 
     uploaded_files = st.file_uploader(
-        "📂 Subir fotos", 
-        accept_multiple_files=True, 
-        type=['jpg','png','jpeg'],
-        key=f"uploader_{st.session_state['uploader_key']}" # La clave cambia -> el widget se vacía
+        "📂 Subir fotos", accept_multiple_files=True, type=['jpg','png','jpeg'],
+        key=f"uploader_{st.session_state['uploader_key']}"
     )
 
     if uploaded_files:
@@ -237,11 +290,8 @@ else:
                         st.warning("⚠️ Ticket ya cargado.")
                     elif res is not False:
                         st.balloons()
-                        # Feedback
                         total_fmt = f"{data.get('moneda','$')} {data.get('total_pagado')}"
                         st.success(f"✅ **¡Carga Exitosa!**\n\n💰 **{total_fmt}** ({res} items)\n📍 {data.get('supermercado')}")
-                        
-                        # TRUCO: Aumentamos la clave para que al recargar se limpie el uploader
                         st.session_state['uploader_key'] += 1
                         time.sleep(4)
                         st.rerun()
