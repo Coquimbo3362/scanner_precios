@@ -12,16 +12,17 @@ from supabase import create_client, Client
 # --- 1. CONFIGURACIÓN VISUAL ---
 st.set_page_config(page_title="Club de Precios", page_icon="🛒", layout="wide", initial_sidebar_state="collapsed")
 
+# Estilos CSS
 st.markdown("""
     <style>
         .block-container { padding-top: 3rem !important; padding-bottom: 2rem !important; }
         h1 { font-size: 1.8rem !important; text-align: center; margin-bottom: 1rem; }
         div[data-testid="stFileUploader"] {
-            width: 100% !important; padding: 20px; border: 2px dashed #4CAF50; border-radius: 15px; text-align: center;
+            width: 100% !important; padding: 15px; border: 2px dashed #4CAF50; border-radius: 15px; text-align: center;
         }
         .stButton button { 
             width: 100%; border-radius: 30px; height: 3.5rem; font-size: 1.2rem; font-weight: bold;
-            background-color: #FF4B4B; color: white;
+            background-color: #FF4B4B; color: white; border: none;
         }
     </style>
 """, unsafe_allow_html=True)
@@ -93,38 +94,41 @@ def limpiar_fecha(fecha_str):
     if len(fecha_str) != 10: return time.strftime("%Y-%m-%d")
     return fecha_str
 
-# --- LOGIN ---
+# --- LOGIN MEJORADO ---
 if 'user' not in st.session_state: st.session_state['user'] = None
 
 def login():
     st.markdown("### 🌎 Ingreso Global")
     tab1, tab2 = st.tabs(["Ingresar", "Crear Cuenta"])
+    
     with tab1:
-        with st.form("login_form"):
-            email = st.text_input("Email")
-            password = st.text_input("Contraseña", type="password")
-            if st.form_submit_button("Entrar", use_container_width=True):
-                try:
-                    session = supabase.auth.sign_in_with_password({"email": email, "password": password})
-                    st.session_state['user'] = session.user
-                    st.rerun()
-                except: st.error("Datos incorrectos")
+        email = st.text_input("Email", key="login_email")
+        password = st.text_input("Contraseña", type="password", key="login_pass")
+        
+        if st.button("Entrar", key="btn_entrar"):
+            try:
+                session = supabase.auth.sign_in_with_password({"email": email, "password": password})
+                st.session_state['user'] = session.user
+                st.rerun() # Recarga inmediata si fue exitoso
+            except:
+                st.error("Email o contraseña incorrectos. Intenta de nuevo.")
+
     with tab2:
-        with st.form("register_form"):
-            new_email = st.text_input("Email")
-            new_pass = st.text_input("Contraseña", type="password")
-            c1, c2 = st.columns(2)
-            pais = c1.selectbox("País", PAISES_SOPORTADOS)
-            ciudad = c2.text_input("Ciudad")
-            if st.form_submit_button("Registrarme", use_container_width=True):
-                try:
-                    res = supabase.auth.sign_up({"email": new_email, "password": new_pass})
-                    if res.user:
-                        try:
-                            supabase.table('perfiles').insert({"id": res.user.id, "pais": pais, "ciudad": ciudad}).execute()
-                        except: pass
-                        st.success("Cuenta creada.")
-                except Exception as e: st.error(f"Error: {e}")
+        new_email = st.text_input("Email Reg")
+        new_pass = st.text_input("Pass Reg", type="password")
+        c1, c2 = st.columns(2)
+        pais = c1.selectbox("País", PAISES_SOPORTADOS)
+        ciudad = c2.text_input("Ciudad")
+        
+        if st.button("Registrarme"):
+            try:
+                res = supabase.auth.sign_up({"email": new_email, "password": new_pass})
+                if res.user:
+                    try:
+                        supabase.table('perfiles').insert({"id": res.user.id, "pais": pais, "ciudad": ciudad}).execute()
+                    except: pass
+                    st.success("¡Cuenta creada! Ve a la pestaña 'Ingresar'.")
+            except Exception as e: st.error(f"Error: {e}")
 
 def logout():
     supabase.auth.sign_out()
@@ -146,15 +150,13 @@ def guardar_en_supabase(data):
     ticket_data = {
         "user_id": user_id, "supermercado_id": super_id, "fecha": limpiar_fecha(data['fecha']),
         "hora": data['hora'], "monto_total": limpiar_numero(data['total_pagado']),
-        "imagen_url": "v4.6_fix_empty", "sucursal_direccion": data.get('sucursal_direccion'),
+        "imagen_url": "v4.7_autoclear", "sucursal_direccion": data.get('sucursal_direccion'),
         "sucursal_localidad": data.get('sucursal_localidad'), "sucursal_provincia": data.get('sucursal_provincia'),
         "sucursal_pais": data.get('sucursal_pais'), "moneda": data.get('moneda')
     }
     try:
-        # Guardar Ticket
         res_ticket = supabase.table('tickets').insert(ticket_data).execute()
         ticket_id = res_ticket.data[0]['id']
-        
         items = []
         for item in data['items']:
             items.append({
@@ -164,36 +166,28 @@ def guardar_en_supabase(data):
                 "marca": item.get('marca'), "producto_generico": item.get('producto_generico'),
                 "contenido_neto": limpiar_numero(item.get('contenido_neto')), "unidad_contenido": item.get('unidad_contenido')
             })
-        
-        # --- FIX: Verificar si hay items antes de insertar ---
         if items:
             supabase.table('items_compra').insert(items).execute()
             return len(items)
-        else:
-            return 0 # Retornamos 0 (éxito pero sin items)
-            
+        else: return 0
     except Exception as e:
         if "unique" in str(e).lower(): return "DUPLICADO"
-        st.error(f"Error DB Detalle: {e}")
+        st.error(f"Error DB: {e}")
         return False
 
 def procesar_imagenes(lista_imagenes):
     contenido = []
     prompt = f"""
-    Analiza este ticket de compra.
-    1. SUPERMERCADO: Extrae NOMBRE + SUCURSAL (ej: JUMBO UNICENTER).
-    2. FECHA Y MONEDA: Fecha YYYY-MM-DD.
-    3. PRODUCTOS: Marca, genérico, rubro (de la lista), contenido y unidad.
+    Analiza este ticket.
+    1. SUPERMERCADO: Extrae NOMBRE + SUCURSAL.
+    2. PRODUCTOS: Marca, genérico, rubro (de la lista), contenido y unidad.
     Rubros: {RUBROS_VALIDOS}
     JSON Estricto:
     {{
-        "supermercado": "Str", "sucursal_direccion": "Str", "sucursal_localidad": "Str",
-        "sucursal_provincia": "Str", "sucursal_pais": "Str", "moneda": "Str",
+        "supermercado": "Str", "sucursal_direccion": "Str", "sucursal_localidad": "Str", "sucursal_provincia": "Str", "sucursal_pais": "Str", "moneda": "Str",
         "fecha": "YYYY-MM-DD", "hora": "HH:MM", "nro_ticket": "str", "total_pagado": num,
-        "items": [
-            {{ "nombre": "Nombre Completo", "cantidad": num, "unidad_medida": "Str", "precio_neto_final": num,
-               "marca": "Str", "producto_generico": "Str", "rubro": "Str", "contenido_neto": num, "unidad_contenido": "Str" }}
-        ]
+        "items": [ {{ "nombre": "Str", "cantidad": num, "unidad_medida": "Str", "precio_neto_final": num,
+               "marca": "Str", "producto_generico": "Str", "rubro": "Str", "contenido_neto": num, "unidad_contenido": "Str" }} ]
     }}
     """
     contenido.append(prompt)
@@ -207,7 +201,7 @@ def procesar_imagenes(lista_imagenes):
         st.error(f"Error IA: {e}")
         return None
 
-# --- INTERFAZ ---
+# --- APP PRINCIPAL ---
 if not st.session_state['user']:
     login()
 else:
@@ -216,13 +210,21 @@ else:
         st.write(f"{st.session_state['user'].email}")
         if st.button("Salir"): logout()
 
-    st.markdown("<h1>🛒 Club de Precios v4.6</h1>", unsafe_allow_html=True)
-    st.info("💡 Usa la **Cámara Nativa** de tu celular (con Flash) y sube la foto aquí.")
+    st.markdown("<h1>🛒 Club de Precios v4.7</h1>", unsafe_allow_html=True)
+    st.info("💡 **Tip:** Mantén apretada una foto en tu galería para seleccionar varias a la vez.")
 
-    uploaded_files = st.file_uploader("📂 Subir fotos del ticket", accept_multiple_files=True, type=['jpg','png','jpeg'])
+    # TRUCO DE LIMPIEZA: Usamos un key dinámico
+    if 'uploader_key' not in st.session_state: st.session_state['uploader_key'] = 0
+
+    uploaded_files = st.file_uploader(
+        "📂 Subir fotos", 
+        accept_multiple_files=True, 
+        type=['jpg','png','jpeg'],
+        key=f"uploader_{st.session_state['uploader_key']}" # La clave cambia -> el widget se vacía
+    )
 
     if uploaded_files:
-        st.write(f"🎞️ **{len(uploaded_files)} imágenes**")
+        st.write(f"🎞️ **{len(uploaded_files)} imágenes listas**")
         
         if st.button("🚀 PROCESAR TICKET", type="primary", use_container_width=True):
             with st.spinner("🧠 Analizando..."):
@@ -232,21 +234,16 @@ else:
                     res = guardar_en_supabase(data)
                     
                     if res == "DUPLICADO":
-                        st.warning("⚠️ Ticket duplicado.")
-                    elif res is not False: # FIX: Aceptamos 0 como válido
+                        st.warning("⚠️ Ticket ya cargado.")
+                    elif res is not False:
                         st.balloons()
-                        c1, c2, c3 = st.columns(3)
+                        # Feedback
                         total_fmt = f"{data.get('moneda','$')} {data.get('total_pagado')}"
-                        c1.metric("Super", data.get('supermercado'))
-                        c2.metric("Items", res)
-                        c3.metric("Total", total_fmt)
+                        st.success(f"✅ **¡Carga Exitosa!**\n\n💰 **{total_fmt}** ({res} items)\n📍 {data.get('supermercado')}")
                         
-                        if res == 0:
-                            st.warning("⚠️ Se guardó el ticket pero NO se detectaron productos. Intenta con una foto más clara.")
-                        else:
-                            st.success(f"✅ ¡Todo listo!")
-                        
-                        st.markdown("---")
-                        st.write("**Para cargar otro:** Elimina las fotos de arriba (X).")
+                        # TRUCO: Aumentamos la clave para que al recargar se limpie el uploader
+                        st.session_state['uploader_key'] += 1
+                        time.sleep(4)
+                        st.rerun()
                     else:
-                        st.error("Hubo un error al guardar.")
+                        st.error("Hubo un error técnico.")
