@@ -52,7 +52,7 @@ PAISES_SOPORTADOS = ["Argentina", "Brasil", "Uruguay", "Chile", "Paraguay", "Bol
 
 # Códigos para WhatsApp (E.164)
 CODIGOS_PAIS = {
-    "Argentina 🇦🇷": "+549", # El 9 es clave para celulares Arg
+    "Argentina 🇦🇷": "+549",
     "Brasil 🇧🇷": "+55",
     "Uruguay 🇺🇾": "+598",
     "Chile 🇨🇱": "+56",
@@ -165,7 +165,7 @@ def guardar_en_supabase(data):
     ticket_data = {
         "user_id": user_id, "supermercado_id": super_id, "fecha": limpiar_fecha(data['fecha']),
         "hora": data['hora'], "monto_total": limpiar_numero(data['total_pagado']),
-        "imagen_url": "v4.8_whatsapp_prep", "sucursal_direccion": data.get('sucursal_direccion'),
+        "imagen_url": "v4.9_fix_phone", "sucursal_direccion": data.get('sucursal_direccion'),
         "sucursal_localidad": data.get('sucursal_localidad'), "sucursal_provincia": data.get('sucursal_provincia'),
         "sucursal_pais": data.get('sucursal_pais'), "moneda": data.get('moneda')
     }
@@ -220,29 +220,29 @@ def procesar_imagenes(lista_imagenes):
 if not st.session_state['user']:
     login()
 else:
-    # --- SIDEBAR (Menú Lateral Actualizado) ---
+    # --- SIDEBAR (Menú Lateral Corregido) ---
     with st.sidebar:
         st.header("👤 Mi Cuenta")
         st.write(f"Email: {st.session_state['user'].email}")
         
-        # --- CONFIGURAR WHATSAPP ---
         with st.expander("📱 Vincular Celular", expanded=True):
             try:
                 # Buscar datos actuales
                 perfil = supabase.table('perfiles').select('telefono, pais').eq('id', st.session_state['user'].id).execute().data
-                tel_actual = perfil[0].get('telefono', '') if perfil else ""
+                # FIX: Manejo seguro de nulos
+                tel_actual = perfil[0].get('telefono') if perfil else ""
+                if tel_actual is None: tel_actual = ""
+                
                 pais_actual = perfil[0].get('pais', 'Argentina') if perfil else "Argentina"
             except:
                 tel_actual = ""
                 pais_actual = "Argentina"
 
-            # Auto-detectar país en el selector
             pais_key_match = next((k for k in CODIGOS_PAIS if pais_actual in k), "Argentina 🇦🇷")
-            
             sel_pais = st.selectbox("Código País", list(CODIGOS_PAIS.keys()), index=list(CODIGOS_PAIS.keys()).index(pais_key_match) if pais_key_match in CODIGOS_PAIS else 0)
             prefijo = CODIGOS_PAIS[sel_pais]
             
-            # Limpiar prefijo para mostrar solo el número local
+            # Limpiar prefijo para mostrar solo el número
             display_num = tel_actual.replace(prefijo, "") if tel_actual.startswith(prefijo) else tel_actual
             
             numero_local = st.text_input("Número (sin 0 ni 15)", value=display_num, placeholder="1122334455")
@@ -250,7 +250,6 @@ else:
             if st.button("Guardar Teléfono"):
                 tel_final = f"{prefijo}{numero_local}".strip()
                 try:
-                    # Guardamos usando UPSERT por si el perfil no existía
                     datos = {"id": st.session_state['user'].id, "telefono": tel_final, "pais": pais_actual}
                     supabase.table('perfiles').upsert(datos).execute()
                     st.success("✅ Guardado")
@@ -266,7 +265,7 @@ else:
         if st.button("Salir"): logout()
 
     # --- PANTALLA PRINCIPAL ---
-    st.markdown("<h1>🛒 Club de Precios v4.8</h1>", unsafe_allow_html=True)
+    st.markdown("<h1>🛒 Club de Precios v4.9</h1>", unsafe_allow_html=True)
     st.info("💡 **Tip:** Mantén apretada una foto en tu galería para seleccionar varias a la vez.")
 
     if 'uploader_key' not in st.session_state: st.session_state['uploader_key'] = 0
