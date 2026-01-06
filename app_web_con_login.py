@@ -12,21 +12,33 @@ from supabase import create_client, Client
 # --- 1. CONFIGURACIÓN VISUAL ---
 st.set_page_config(page_title="Club de Precios", page_icon="🛒", layout="wide", initial_sidebar_state="collapsed")
 
-    # CSS Estilos
+# CSS: Estilos para la Landing Page y la App
 st.markdown("""
     <style>
-        .block-container { padding-top: 3rem !important; padding-bottom: 2rem !important; }
-        h1 { font-size: 1.8rem !important; text-align: center; margin-bottom: 1rem; }
-        
-        div[data-testid="stFileUploader"] {
-            width: 100% !important; padding: 15px; border: 2px dashed #4CAF50; border-radius: 15px; text-align: center;
+        /* Ajuste de márgenes */
+        .block-container {
+            padding-top: 2rem !important;
+            padding-bottom: 3rem !important;
         }
+        
+        /* Títulos */
+        h1 { font-size: 2rem !important; text-align: center; margin-bottom: 0.5rem; color: #FF4B4B; }
+        h3 { text-align: center; margin-top: 0; font-weight: 300; }
+        
+        /* Botones Grandes */
         .stButton button { 
-            width: 100%; border-radius: 30px; height: 3.5rem; font-size: 1.2rem; font-weight: bold;
-            background-color: #FF4B4B; color: white; border: none;
+            width: 100%; border-radius: 30px; height: 3.5rem; 
+            font-size: 1.1rem; font-weight: bold;
+        }
+        
+        /* Área de carga de archivos */
+        div[data-testid="stFileUploader"] {
+            border: 2px dashed #FF4B4B;
+            border-radius: 15px;
+            padding: 20px;
+            text-align: center;
         }
     </style>
-""", unsafe_allow_html=True)
 """, unsafe_allow_html=True)
 
 # --- BACKEND ---
@@ -37,7 +49,7 @@ try:
     GOOGLE_KEY = st.secrets["GOOGLE_API_KEY"] if "GOOGLE_API_KEY" in st.secrets else os.environ.get("GOOGLE_API_KEY")
 
     if not URL or not KEY or not GOOGLE_KEY:
-        st.error("❌ Faltan claves.")
+        st.error("❌ Faltan claves de configuración.")
         st.stop()
 
     supabase: Client = create_client(URL, KEY)
@@ -45,7 +57,7 @@ try:
     MODELO_IA = 'gemini-2.5-flash' 
 
 except Exception as e:
-    st.error(f"Error config: {e}")
+    st.error(f"Error de sistema: {e}")
     st.stop()
 
 # --- DATOS MAESTROS ---
@@ -91,7 +103,7 @@ RUBROS_VALIDOS = """
 - Otros
 """
 
-# --- FUNCIONES ---
+# --- FUNCIONES DE LIMPIEZA ---
 def limpiar_numero(valor):
     if not valor: return 0.0
     if isinstance(valor, (int, float)): return float(valor)
@@ -110,48 +122,77 @@ def limpiar_fecha(fecha_str):
     if len(fecha_str) != 10: return time.strftime("%Y-%m-%d")
     return fecha_str
 
-# --- LOGIN ---
+# --- LOGIN (LANDING PAGE) ---
 if 'user' not in st.session_state: st.session_state['user'] = None
 
 def login():
-    st.markdown("### 🌎 Ingreso Global")
-    tab1, tab2 = st.tabs(["Ingresar", "Crear Cuenta"])
+    # --- ENCABEZADO DE MARKETING ---
+    st.markdown("<h1>🛒 Club de Precios</h1>", unsafe_allow_html=True)
+    st.markdown("<h3>La inteligencia colectiva contra la inflación</h3>", unsafe_allow_html=True)
+    
+    st.markdown("""
+    <p style='text-align: center; font-size: 1.1em; color: gray;'>
+        Sube la foto de tu ticket, organizamos tus gastos y comparamos precios automáticamente.
+    </p>
+    """, unsafe_allow_html=True)
+    
+    # --- COLUMNAS DE BENEFICIOS ---
+    st.divider()
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.markdown("<div style='text-align: center;'>📸<br><b>Escanea</b><br>Saca una foto a tu ticket. La IA hace el resto.</div>", unsafe_allow_html=True)
+    with c2:
+        st.markdown("<div style='text-align: center;'>📊<br><b>Controla</b><br>Mira cómo evolucionan tus gastos mes a mes.</div>", unsafe_allow_html=True)
+    with c3:
+        st.markdown("<div style='text-align: center;'>🤝<br><b>Ahorra</b><br>Descubre quién vende más barato en tu zona.</div>", unsafe_allow_html=True)
+    st.divider()
+
+    # --- ZONA DE INGRESO ---
+    st.info("👇 **Comienza ahora**")
+    
+    tab1, tab2 = st.tabs(["🔐 Ya soy Socio", "📝 Quiero unirme Gratis"])
     
     with tab1:
-        email = st.text_input("Email", key="login_email")
-        password = st.text_input("Contraseña", type="password", key="login_pass")
-        
-        if st.button("Entrar", key="btn_entrar"):
-            try:
-                session = supabase.auth.sign_in_with_password({"email": email, "password": password})
-                st.session_state['user'] = session.user
-                st.rerun()
-            except:
-                st.error("Email o contraseña incorrectos.")
+        with st.form("login_form"):
+            email = st.text_input("Email")
+            password = st.text_input("Contraseña", type="password")
+            if st.form_submit_button("Ingresar", use_container_width=True):
+                try:
+                    session = supabase.auth.sign_in_with_password({"email": email, "password": password})
+                    st.session_state['user'] = session.user
+                    st.rerun()
+                except: st.error("Email o contraseña incorrectos")
 
     with tab2:
-        new_email = st.text_input("Email Reg")
-        new_pass = st.text_input("Pass Reg", type="password")
-        c1, c2 = st.columns(2)
-        pais = c1.selectbox("País", PAISES_SOPORTADOS)
-        ciudad = c2.text_input("Ciudad")
-        
-        if st.button("Registrarme"):
-            try:
-                res = supabase.auth.sign_up({"email": new_email, "password": new_pass})
-                if res.user:
-                    try:
-                        supabase.table('perfiles').insert({"id": res.user.id, "pais": pais, "ciudad": ciudad}).execute()
-                    except: pass
-                    st.success("¡Cuenta creada! Ve a la pestaña 'Ingresar'.")
-            except Exception as e: st.error(f"Error: {e}")
+        with st.form("register_form"):
+            c_a, c_b = st.columns(2)
+            new_email = c_a.text_input("Tu Email")
+            new_pass = c_b.text_input("Crea una Contraseña", type="password")
+            
+            st.markdown("📍 **¿Dónde haces tus compras?**")
+            c1, c2, c3 = st.columns(3)
+            pais = c1.selectbox("País", PAISES_SOPORTADOS)
+            provincia = c2.text_input("Provincia")
+            ciudad = c3.text_input("Ciudad")
+            
+            if st.form_submit_button("Crear Cuenta", use_container_width=True):
+                try:
+                    res = supabase.auth.sign_up({"email": new_email, "password": new_pass})
+                    if res.user:
+                        try:
+                            supabase.table('perfiles').insert({
+                                "id": res.user.id, "pais": pais, "ciudad": ciudad, "provincia": provincia
+                            }).execute()
+                        except: pass 
+                        st.success("¡Cuenta creada! Ya puedes ingresar en la otra pestaña.")
+                except Exception as e: st.error(f"Error: {e}")
 
 def logout():
     supabase.auth.sign_out()
     st.session_state['user'] = None
     st.rerun()
 
-# --- BACKEND ---
+# --- BACKEND PROCESAMIENTO ---
 def guardar_en_supabase(data):
     try: user_id = st.session_state['user'].id
     except: user_id = None 
@@ -166,7 +207,7 @@ def guardar_en_supabase(data):
     ticket_data = {
         "user_id": user_id, "supermercado_id": super_id, "fecha": limpiar_fecha(data['fecha']),
         "hora": data['hora'], "monto_total": limpiar_numero(data['total_pagado']),
-        "imagen_url": "v5.0_final", "sucursal_direccion": data.get('sucursal_direccion'),
+        "imagen_url": "v5.0_landing", "sucursal_direccion": data.get('sucursal_direccion'),
         "sucursal_localidad": data.get('sucursal_localidad'), "sucursal_provincia": data.get('sucursal_provincia'),
         "sucursal_pais": data.get('sucursal_pais'), "moneda": data.get('moneda')
     }
@@ -193,17 +234,27 @@ def guardar_en_supabase(data):
 
 def procesar_imagenes(lista_imagenes):
     contenido = []
+    
     prompt = f"""
-    Analiza este ticket.
-    1. SUPERMERCADO: Extrae NOMBRE + SUCURSAL.
-    2. PRODUCTOS: Marca, genérico, rubro (de la lista), contenido y unidad.
+    Analiza este ticket de compra.
+    
+    REGLA DE ORO: Si el nombre del producto ocupa 2 líneas, ÚNELAS. No crees dos items.
+    
+    1. SUPERMERCADO: Extrae NOMBRE + SUCURSAL (ej: JUMBO UNICENTER).
+    2. FECHA Y MONEDA: Fecha YYYY-MM-DD.
+    3. PRODUCTOS: Marca, genérico, rubro (de la lista), contenido y unidad.
+    
     Rubros: {RUBROS_VALIDOS}
+    
     JSON Estricto:
     {{
-        "supermercado": "Str", "sucursal_direccion": "Str", "sucursal_localidad": "Str", "sucursal_provincia": "Str", "sucursal_pais": "Str", "moneda": "Str",
+        "supermercado": "Str", "sucursal_direccion": "Str", "sucursal_localidad": "Str",
+        "sucursal_provincia": "Str", "sucursal_pais": "Str", "moneda": "Str",
         "fecha": "YYYY-MM-DD", "hora": "HH:MM", "nro_ticket": "str", "total_pagado": num,
-        "items": [ {{ "nombre": "Str", "cantidad": num, "unidad_medida": "Str", "precio_neto_final": num,
-               "marca": "Str", "producto_generico": "Str", "rubro": "Str", "contenido_neto": num, "unidad_contenido": "Str" }} ]
+        "items": [
+            {{ "nombre": "Nombre Completo", "cantidad": num, "unidad_medida": "Str", "precio_neto_final": num,
+               "marca": "Str", "producto_generico": "Str", "rubro": "Str", "contenido_neto": num, "unidad_contenido": "Str" }}
+        ]
     }}
     """
     contenido.append(prompt)
@@ -221,7 +272,6 @@ def procesar_imagenes(lista_imagenes):
 if not st.session_state['user']:
     login()
 else:
-    # --- SIDEBAR COMPLETO ---
     with st.sidebar:
         st.header("👤 Mi Cuenta")
         st.write(f"{st.session_state['user'].email}")
@@ -272,7 +322,7 @@ else:
         if st.button("Salir"): logout()
 
     # --- PANTALLA PRINCIPAL ---
-    st.markdown("<h1>🛒 Club de Precios v5.0</h1>", unsafe_allow_html=True)
+    st.markdown("<h1>🛒 Club de Precios</h1>", unsafe_allow_html=True)
     st.info("💡 **Tip:** Mantén apretada una foto en tu galería para seleccionar varias a la vez.")
 
     if 'uploader_key' not in st.session_state: st.session_state['uploader_key'] = 0
