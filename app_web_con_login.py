@@ -165,7 +165,7 @@ def guardar_en_supabase(data):
     ticket_data = {
         "user_id": user_id, "supermercado_id": super_id, "fecha": limpiar_fecha(data['fecha']),
         "hora": data['hora'], "monto_total": limpiar_numero(data['total_pagado']),
-        "imagen_url": "v4.9_fix_phone", "sucursal_direccion": data.get('sucursal_direccion'),
+        "imagen_url": "v5.0_final", "sucursal_direccion": data.get('sucursal_direccion'),
         "sucursal_localidad": data.get('sucursal_localidad'), "sucursal_provincia": data.get('sucursal_provincia'),
         "sucursal_pais": data.get('sucursal_pais'), "moneda": data.get('moneda')
     }
@@ -220,52 +220,58 @@ def procesar_imagenes(lista_imagenes):
 if not st.session_state['user']:
     login()
 else:
-    # --- SIDEBAR (Menú Lateral Corregido) ---
+    # --- SIDEBAR COMPLETO ---
     with st.sidebar:
         st.header("👤 Mi Cuenta")
-        st.write(f"Email: {st.session_state['user'].email}")
+        st.write(f"{st.session_state['user'].email}")
         
+        # 1. GESTIÓN DE TELÉFONO
         with st.expander("📱 Vincular Celular", expanded=True):
             try:
-                # Buscar datos actuales
                 perfil = supabase.table('perfiles').select('telefono, pais').eq('id', st.session_state['user'].id).execute().data
-                # FIX: Manejo seguro de nulos
                 tel_actual = perfil[0].get('telefono') if perfil else ""
                 if tel_actual is None: tel_actual = ""
-                
                 pais_actual = perfil[0].get('pais', 'Argentina') if perfil else "Argentina"
             except:
                 tel_actual = ""
                 pais_actual = "Argentina"
 
             pais_key_match = next((k for k in CODIGOS_PAIS if pais_actual in k), "Argentina 🇦🇷")
-            sel_pais = st.selectbox("Código País", list(CODIGOS_PAIS.keys()), index=list(CODIGOS_PAIS.keys()).index(pais_key_match) if pais_key_match in CODIGOS_PAIS else 0)
+            sel_pais = st.selectbox("Código", list(CODIGOS_PAIS.keys()), index=list(CODIGOS_PAIS.keys()).index(pais_key_match) if pais_key_match in CODIGOS_PAIS else 0)
             prefijo = CODIGOS_PAIS[sel_pais]
             
-            # Limpiar prefijo para mostrar solo el número
             display_num = tel_actual.replace(prefijo, "") if tel_actual.startswith(prefijo) else tel_actual
+            numero_local = st.text_input("Número (sin 0/15)", value=display_num)
             
-            numero_local = st.text_input("Número (sin 0 ni 15)", value=display_num, placeholder="1122334455")
-            
-            if st.button("Guardar Teléfono"):
+            if st.button("💾 Guardar"):
                 tel_final = f"{prefijo}{numero_local}".strip()
                 try:
                     datos = {"id": st.session_state['user'].id, "telefono": tel_final, "pais": pais_actual}
                     supabase.table('perfiles').upsert(datos).execute()
-                    st.success("✅ Guardado")
+                    st.success("Guardado!")
                     time.sleep(1)
                     st.rerun()
-                except Exception as e:
-                    st.error(f"Error: {e}")
+                except Exception as e: st.error(f"Error: {e}")
 
+        # 2. ACTIVAR BOT WHATSAPP
         if tel_actual:
-            st.caption(f"📞 Registrado: {tel_actual}")
-        
+            st.divider()
+            # ⬇️⬇️⬇️ EDITA ESTAS DOS LINEAS CON TUS DATOS DE TWILIO ⬇️⬇️⬇️
+            TWILIO_NUMBER = "+14155238886"
+            TWILIO_CODE = "join quite-empty" 
+            # ⬆️⬆️⬆️ ----------------------------------------------------
+            
+            with st.expander("🤖 Activar Bot"):
+                st.write("1. Toca el botón.")
+                st.write("2. Envía el mensaje pre-cargado.")
+                link_wa = f"https://wa.me/{TWILIO_NUMBER}?text={TWILIO_CODE.replace(' ', '%20')}"
+                st.link_button("📲 Abrir WhatsApp", link_wa)
+
         st.divider()
         if st.button("Salir"): logout()
 
     # --- PANTALLA PRINCIPAL ---
-    st.markdown("<h1>🛒 Club de Precios v4.9</h1>", unsafe_allow_html=True)
+    st.markdown("<h1>🛒 Club de Precios v5.0</h1>", unsafe_allow_html=True)
     st.info("💡 **Tip:** Mantén apretada una foto en tu galería para seleccionar varias a la vez.")
 
     if 'uploader_key' not in st.session_state: st.session_state['uploader_key'] = 0
