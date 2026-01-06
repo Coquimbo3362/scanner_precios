@@ -12,7 +12,7 @@ from supabase import create_client, Client
 # --- 1. CONFIGURACIÓN VISUAL ---
 st.set_page_config(page_title="Club de Precios", page_icon="🛒", layout="wide", initial_sidebar_state="collapsed")
 
-# CSS Estilos
+    # CSS Estilos
 st.markdown("""
     <style>
         .block-container { padding-top: 3rem !important; padding-bottom: 2rem !important; }
@@ -26,6 +26,7 @@ st.markdown("""
             background-color: #FF4B4B; color: white; border: none;
         }
     </style>
+""", unsafe_allow_html=True)
 """, unsafe_allow_html=True)
 
 # --- BACKEND ---
