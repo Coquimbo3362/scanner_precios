@@ -24,9 +24,8 @@ if 'user' not in st.session_state or not st.session_state['user']:
 st.title("📈 Tablero de Inteligencia")
 
 # --- 1. CARGA Y PROCESAMIENTO ---
-@st.cache_data(ttl=60) # Actualiza cada minuto
+@st.cache_data(ttl=60) 
 def obtener_datos():
-    # CORRECCIÓN AQUÍ: Anidamos la consulta (Items -> Tickets -> Supermercados)
     try:
         response = supabase.table('items_compra').select(
             '*, tickets!inner(fecha, supermercados(nombre))'
@@ -36,17 +35,16 @@ def obtener_datos():
         
         df = pd.DataFrame(response.data)
         
-        # Aplanar datos (Extraer info de las columnas anidadas)
+        # Aplanar datos
         df['fecha'] = pd.to_datetime(df['tickets'].apply(lambda x: x['fecha']))
         
-        # Navegamos dentro del objeto tickets para sacar el nombre del super
         df['sucursal_original'] = df['tickets'].apply(
             lambda x: x['supermercados']['nombre'] if x['supermercados'] else "Desconocido"
         )
         
         df['gasto_total'] = df['precio_neto_unitario'] * df['cantidad']
         
-        # 1. Limpieza de Nombres
+        # --- 1. Limpieza de Nombres (AHORA CON SELMA) ---
         def limpiar_nombre(nombre):
             n = nombre.upper() if nombre else ""
             if 'COTO' in n: return 'COTO'
@@ -57,14 +55,18 @@ def obtener_datos():
             if 'VEA' in n: return 'VEA'
             if 'MAKRO' in n: return 'MAKRO'
             if 'FARMACITY' in n or 'SIMPLICITY' in n: return 'FARMACITY'
+            if 'SELMA' in n: return 'SELMA'  # <--- AGREGADO SELMA
             return n
 
         df['cadena_comercial'] = df['sucursal_original'].apply(limpiar_nombre)
 
-        # 2. Clasificación Tipo
-        df['tipo_comercio'] = df['cadena_comercial'].apply(
-            lambda x: 'Farmacia' if 'FARMACITY' in x else 'Supermercado'
-        )
+        # --- 2. Clasificación Tipo (AHORA CON SELMA) ---
+        def clasificar_tipo(cadena):
+            farmacias = ['FARMACITY', 'SELMA', 'SIMPLICITY']
+            if cadena in farmacias: return 'Farmacia'
+            return 'Supermercado'
+
+        df['tipo_comercio'] = df['cadena_comercial'].apply(clasificar_tipo)
 
         # 3. Arreglar los NULLs
         df['producto_final'] = df['producto_generico'].fillna(df['nombre_producto'])
@@ -82,8 +84,8 @@ if df.empty:
     st.info("No hay datos cargados aún.")
     st.stop()
 
-# --- 2. FILTROS ---
-with st.expander("🔎 Filtros", expanded=True):
+# --- 2. FILTROS GENERALES ---
+with st.expander("🔎 Filtros Generales", expanded=True):
     c1, c2, c3 = st.columns(3)
     
     # Filtro Tipo
@@ -102,17 +104,16 @@ with st.expander("🔎 Filtros", expanded=True):
     max_date = df['fecha'].max().date()
     sel_fechas = c3.date_input("Rango de Fechas", [min_date, max_date])
 
-# Aplicar lógica de filtrado
-# Validar que sel_fechas tenga 2 valores (inicio y fin)
+# Aplicar filtros generales
 if len(sel_fechas) == 2:
     mask = (df['fecha'].dt.date >= sel_fechas[0]) & (df['fecha'].dt.date <= sel_fechas[1])
     if sel_tipo != 'Todos': mask &= (df['tipo_comercio'] == sel_tipo)
     if sel_rubro != 'Todos': mask &= (df['rubro'] == sel_rubro)
     df_filtrado = df[mask]
 else:
-    df_filtrado = df # Si no seleccionó rango completo, mostramos todo
+    df_filtrado = df
 
-# --- 3. GRÁFICOS ---
+# --- 3. GRÁFICOS RESUMEN ---
 st.divider()
 
 if df_filtrado.empty:
@@ -123,14 +124,13 @@ if df_filtrado.empty:
 total_gastado = df_filtrado['gasto_total'].sum()
 items_comprados = df_filtrado['cantidad'].sum()
 col_met1, col_met2 = st.columns(2)
-col_met1.metric("Gasto Total Seleccionado", f"${total_gastado:,.2f}")
-col_met2.metric("Unidades Compradas", f"{items_comprados:.0f}")
+col_met1.metric("Gasto Total", f"${total_gastado:,.2f}")
+col_met2.metric("Unidades", f"{items_comprados:.0f}")
 
 c_chart1, c_chart2 = st.columns([2, 1])
 
 with c_chart1:
     st.subheader("📊 Evolución del Gasto")
-    # Agrupamos por Mes y Cadena
     chart_bar = alt.Chart(df_filtrado).mark_bar().encode(
         x=alt.X('yearmonth(fecha):O', title='Mes'),
         y=alt.Y('sum(gasto_total)', title='Monto ($)'),
@@ -140,7 +140,7 @@ with c_chart1:
     st.altair_chart(chart_bar, use_container_width=True)
 
 with c_chart2:
-    st.subheader("🛒 Distribución")
+    st.subheader("🛒 Participación")
     chart_pie = alt.Chart(df_filtrado).mark_arc(innerRadius=50).encode(
         theta=alt.Theta(field="gasto_total", aggregate="sum"),
         color=alt.Color(field="cadena_comercial"),
@@ -148,10 +148,23 @@ with c_chart2:
     )
     st.altair_chart(chart_pie, use_container_width=True)
 
-# --- 4. DETALLE ---
-st.subheader("📝 Detalle de Compras")
+# --- 4. DETALLE DE PRODUCTOS (INTERACTIVO) ---
+st.divider()
+st.subheader("📝 Historial de Productos")
+
+# AQUÍ ESTÁ LA NUEVA FUNCIÓN: Buscador de Producto
+lista_productos_disponibles = ['Todos'] + sorted(list(df_filtrado['producto_final'].unique()))
+sel_producto = st.selectbox("🔍 Buscar un producto específico en la lista:", lista_productos_disponibles)
+
+# Filtrar la tabla de abajo según la selección
+if sel_producto != 'Todos':
+    df_tabla = df_filtrado[df_filtrado['producto_final'] == sel_producto]
+else:
+    df_tabla = df_filtrado
+
+# Mostrar Tabla
 st.dataframe(
-    df_filtrado[['fecha', 'cadena_comercial', 'producto_final', 'cantidad', 'precio_neto_unitario', 'gasto_total']].sort_values('fecha', ascending=False),
+    df_tabla[['fecha', 'cadena_comercial', 'producto_final', 'cantidad', 'precio_neto_unitario', 'gasto_total']].sort_values('fecha', ascending=False),
     column_config={
         "fecha": st.column_config.DateColumn("Fecha", format="DD/MM/YYYY"),
         "precio_neto_unitario": st.column_config.NumberColumn("Precio Unit.", format="$ %.2f"),
