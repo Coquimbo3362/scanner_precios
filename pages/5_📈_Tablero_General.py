@@ -23,51 +23,58 @@ if 'user' not in st.session_state or not st.session_state['user']:
 
 st.title("📈 Tablero de Inteligencia")
 
-# --- 1. CARGA Y PROCESAMIENTO (Aquí aplicamos tu lógica SQL) ---
+# --- 1. CARGA Y PROCESAMIENTO ---
 @st.cache_data(ttl=60) # Actualiza cada minuto
 def obtener_datos():
-    # Traemos las tablas crudas
-    response = supabase.table('items_compra').select(
-        '*, tickets!inner(fecha), supermercados!inner(nombre)'
-    ).execute()
-    
-    if not response.data: return pd.DataFrame()
-    
-    df = pd.DataFrame(response.data)
-    
-    # Aplanar datos
-    df['fecha'] = pd.to_datetime(df['tickets'].apply(lambda x: x['fecha']))
-    df['sucursal_original'] = df['tickets'].apply(lambda x: x['supermercados']['nombre'])
-    df['gasto_total'] = df['precio_neto_unitario'] * df['cantidad']
-    
-    # --- AQUI ESTA LA TRADUCCIÓN DE TU SQL A PYTHON ---
-    
-    # 1. Limpieza de Nombres (CASE WHEN...)
-    def limpiar_nombre(nombre):
-        n = nombre.upper()
-        if 'COTO' in n: return 'COTO'
-        if 'JUMBO' in n: return 'JUMBO'
-        if 'CARREFOUR' in n: return 'CARREFOUR'
-        if 'DIA' in n: return 'DIA'
-        if 'DISCO' in n: return 'DISCO'
-        if 'VEA' in n: return 'VEA'
-        if 'MAKRO' in n: return 'MAKRO'
-        if 'FARMACITY' in n or 'SIMPLICITY' in n: return 'FARMACITY'
-        return n # Si no coincide, devuelve el original
+    # CORRECCIÓN AQUÍ: Anidamos la consulta (Items -> Tickets -> Supermercados)
+    try:
+        response = supabase.table('items_compra').select(
+            '*, tickets!inner(fecha, supermercados(nombre))'
+        ).execute()
+        
+        if not response.data: return pd.DataFrame()
+        
+        df = pd.DataFrame(response.data)
+        
+        # Aplanar datos (Extraer info de las columnas anidadas)
+        df['fecha'] = pd.to_datetime(df['tickets'].apply(lambda x: x['fecha']))
+        
+        # Navegamos dentro del objeto tickets para sacar el nombre del super
+        df['sucursal_original'] = df['tickets'].apply(
+            lambda x: x['supermercados']['nombre'] if x['supermercados'] else "Desconocido"
+        )
+        
+        df['gasto_total'] = df['precio_neto_unitario'] * df['cantidad']
+        
+        # 1. Limpieza de Nombres
+        def limpiar_nombre(nombre):
+            n = nombre.upper() if nombre else ""
+            if 'COTO' in n: return 'COTO'
+            if 'JUMBO' in n: return 'JUMBO'
+            if 'CARREFOUR' in n: return 'CARREFOUR'
+            if 'DIA' in n: return 'DIA'
+            if 'DISCO' in n: return 'DISCO'
+            if 'VEA' in n: return 'VEA'
+            if 'MAKRO' in n: return 'MAKRO'
+            if 'FARMACITY' in n or 'SIMPLICITY' in n: return 'FARMACITY'
+            return n
 
-    df['cadena_comercial'] = df['sucursal_original'].apply(limpiar_nombre)
+        df['cadena_comercial'] = df['sucursal_original'].apply(limpiar_nombre)
 
-    # 2. Clasificación Tipo (CASE WHEN...)
-    df['tipo_comercio'] = df['cadena_comercial'].apply(
-        lambda x: 'Farmacia' if 'FARMACITY' in x else 'Supermercado'
-    )
+        # 2. Clasificación Tipo
+        df['tipo_comercio'] = df['cadena_comercial'].apply(
+            lambda x: 'Farmacia' if 'FARMACITY' in x else 'Supermercado'
+        )
 
-    # 3. Arreglar los NULLs (Lo que viste en la imagen)
-    # Si producto_generico es null, usa el nombre del ticket
-    df['producto_final'] = df['producto_generico'].fillna(df['nombre_producto'])
-    df['rubro'] = df['rubro'].fillna('Sin Clasificar')
-    
-    return df
+        # 3. Arreglar los NULLs
+        df['producto_final'] = df['producto_generico'].fillna(df['nombre_producto'])
+        df['rubro'] = df['rubro'].fillna('Sin Clasificar')
+        
+        return df
+
+    except Exception as e:
+        st.error(f"Error cargando datos: {e}")
+        return pd.DataFrame()
 
 df = obtener_datos()
 
@@ -79,11 +86,11 @@ if df.empty:
 with st.expander("🔎 Filtros", expanded=True):
     c1, c2, c3 = st.columns(3)
     
-    # Filtro Tipo (Farmacia/Super)
+    # Filtro Tipo
     tipos = ['Todos'] + list(df['tipo_comercio'].unique())
     sel_tipo = c1.selectbox("Tipo de Comercio", tipos)
     
-    # Filtrar DF parcial para mostrar rubros correctos
+    # Filtrar DF parcial
     df_temp = df if sel_tipo == 'Todos' else df[df['tipo_comercio'] == sel_tipo]
     
     # Filtro Rubro
@@ -96,14 +103,21 @@ with st.expander("🔎 Filtros", expanded=True):
     sel_fechas = c3.date_input("Rango de Fechas", [min_date, max_date])
 
 # Aplicar lógica de filtrado
-mask = (df['fecha'].dt.date >= sel_fechas[0]) & (df['fecha'].dt.date <= sel_fechas[1])
-if sel_tipo != 'Todos': mask &= (df['tipo_comercio'] == sel_tipo)
-if sel_rubro != 'Todos': mask &= (df['rubro'] == sel_rubro)
-
-df_filtrado = df[mask]
+# Validar que sel_fechas tenga 2 valores (inicio y fin)
+if len(sel_fechas) == 2:
+    mask = (df['fecha'].dt.date >= sel_fechas[0]) & (df['fecha'].dt.date <= sel_fechas[1])
+    if sel_tipo != 'Todos': mask &= (df['tipo_comercio'] == sel_tipo)
+    if sel_rubro != 'Todos': mask &= (df['rubro'] == sel_rubro)
+    df_filtrado = df[mask]
+else:
+    df_filtrado = df # Si no seleccionó rango completo, mostramos todo
 
 # --- 3. GRÁFICOS ---
 st.divider()
+
+if df_filtrado.empty:
+    st.warning("No hay datos para estos filtros.")
+    st.stop()
 
 # Métricas
 total_gastado = df_filtrado['gasto_total'].sum()
