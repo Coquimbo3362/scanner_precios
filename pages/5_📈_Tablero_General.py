@@ -44,7 +44,7 @@ def obtener_datos():
         
         df['gasto_total'] = df['precio_neto_unitario'] * df['cantidad']
         
-        # --- 1. Limpieza de Nombres (AHORA CON SELMA) ---
+        # --- LIMPIEZA DE NOMBRES MEJORADA ---
         def limpiar_nombre(nombre):
             n = nombre.upper() if nombre else ""
             if 'COTO' in n: return 'COTO'
@@ -54,13 +54,14 @@ def obtener_datos():
             if 'DISCO' in n: return 'DISCO'
             if 'VEA' in n: return 'VEA'
             if 'MAKRO' in n: return 'MAKRO'
-            if 'FARMACITY' in n or 'SIMPLICITY' in n: return 'FARMACITY'
-            if 'SELMA' in n: return 'SELMA'  # <--- AGREGADO SELMA
+            # Agregamos variaciones de Farmacity
+            if 'FARMACITY' in n or 'SIMPLICITY' in n or 'FARMCITY' in n: return 'FARMACITY'
+            if 'SELMA' in n: return 'SELMA'
             return n
 
         df['cadena_comercial'] = df['sucursal_original'].apply(limpiar_nombre)
 
-        # --- 2. Clasificación Tipo (AHORA CON SELMA) ---
+        # --- Clasificación Tipo ---
         def clasificar_tipo(cadena):
             farmacias = ['FARMACITY', 'SELMA', 'SIMPLICITY']
             if cadena in farmacias: return 'Farmacia'
@@ -68,7 +69,7 @@ def obtener_datos():
 
         df['tipo_comercio'] = df['cadena_comercial'].apply(clasificar_tipo)
 
-        # 3. Arreglar los NULLs
+        # Arreglar los NULLs
         df['producto_final'] = df['producto_generico'].fillna(df['nombre_producto'])
         df['rubro'] = df['rubro'].fillna('Sin Clasificar')
         
@@ -148,15 +149,15 @@ with c_chart2:
     )
     st.altair_chart(chart_pie, use_container_width=True)
 
-# --- 4. DETALLE DE PRODUCTOS (INTERACTIVO) ---
+# --- 4. DETALLE DE PRODUCTOS (CORREGIDO) ---
 st.divider()
 st.subheader("📝 Historial de Productos")
 
-# AQUÍ ESTÁ LA NUEVA FUNCIÓN: Buscador de Producto
+# Buscador de Producto
 lista_productos_disponibles = ['Todos'] + sorted(list(df_filtrado['producto_final'].unique()))
-sel_producto = st.selectbox("🔍 Buscar un producto específico en la lista:", lista_productos_disponibles)
+sel_producto = st.selectbox("🔍 Buscar un producto específico:", lista_productos_disponibles)
 
-# Filtrar la tabla de abajo según la selección
+# FILTRO DE TABLA (Esto era lo que faltaba conectar)
 if sel_producto != 'Todos':
     df_tabla = df_filtrado[df_filtrado['producto_final'] == sel_producto]
 else:
