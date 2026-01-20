@@ -35,6 +35,12 @@ def obtener_datos():
         
         df = pd.DataFrame(response.data)
         
+        # --- FILTRO DE LIMPIEZA CRÍTICO ---
+        # Eliminamos cualquier registro con precio 0 o negativo
+        df = df[df['precio_neto_unitario'] > 0]
+        
+        if df.empty: return pd.DataFrame()
+
         # Aplanar datos
         df['fecha'] = pd.to_datetime(df['tickets'].apply(lambda x: x['fecha']))
         
@@ -44,7 +50,7 @@ def obtener_datos():
         
         df['gasto_total'] = df['precio_neto_unitario'] * df['cantidad']
         
-        # --- LIMPIEZA DE NOMBRES MEJORADA ---
+        # Limpieza de Nombres
         def limpiar_nombre(nombre):
             n = nombre.upper() if nombre else ""
             if 'COTO' in n: return 'COTO'
@@ -54,14 +60,13 @@ def obtener_datos():
             if 'DISCO' in n: return 'DISCO'
             if 'VEA' in n: return 'VEA'
             if 'MAKRO' in n: return 'MAKRO'
-            # Agregamos variaciones de Farmacity
             if 'FARMACITY' in n or 'SIMPLICITY' in n or 'FARMCITY' in n: return 'FARMACITY'
             if 'SELMA' in n: return 'SELMA'
             return n
 
         df['cadena_comercial'] = df['sucursal_original'].apply(limpiar_nombre)
 
-        # --- Clasificación Tipo ---
+        # Clasificación Tipo
         def clasificar_tipo(cadena):
             farmacias = ['FARMACITY', 'SELMA', 'SIMPLICITY']
             if cadena in farmacias: return 'Farmacia'
@@ -82,7 +87,7 @@ def obtener_datos():
 df = obtener_datos()
 
 if df.empty:
-    st.info("No hay datos cargados aún.")
+    st.info("No hay datos válidos cargados aún (Precios > 0).")
     st.stop()
 
 # --- 2. FILTROS GENERALES ---
@@ -90,14 +95,12 @@ with st.expander("🔎 Filtros Generales", expanded=True):
     c1, c2, c3 = st.columns(3)
     
     # Filtro Tipo
-    tipos = ['Todos'] + list(df['tipo_comercio'].unique())
+    tipos = ['Todos'] + sorted(list(df['tipo_comercio'].unique()))
     sel_tipo = c1.selectbox("Tipo de Comercio", tipos)
     
-    # Filtrar DF parcial
-    df_temp = df if sel_tipo == 'Todos' else df[df['tipo_comercio'] == sel_tipo]
-    
     # Filtro Rubro
-    rubros = ['Todos'] + list(df_temp['rubro'].unique())
+    df_temp = df if sel_tipo == 'Todos' else df[df['tipo_comercio'] == sel_tipo]
+    rubros = ['Todos'] + sorted(list(df_temp['rubro'].unique()))
     sel_rubro = c2.selectbox("Rubro", rubros)
     
     # Filtro Fecha
@@ -105,8 +108,8 @@ with st.expander("🔎 Filtros Generales", expanded=True):
     max_date = df['fecha'].max().date()
     sel_fechas = c3.date_input("Rango de Fechas", [min_date, max_date])
 
-# Aplicar filtros generales
-if len(sel_fechas) == 2:
+# Aplicar filtros
+if isinstance(sel_fechas, list) and len(sel_fechas) == 2:
     mask = (df['fecha'].dt.date >= sel_fechas[0]) & (df['fecha'].dt.date <= sel_fechas[1])
     if sel_tipo != 'Todos': mask &= (df['tipo_comercio'] == sel_tipo)
     if sel_rubro != 'Todos': mask &= (df['rubro'] == sel_rubro)
@@ -149,29 +152,28 @@ with c_chart2:
     )
     st.altair_chart(chart_pie, use_container_width=True)
 
-# --- 4. DETALLE DE PRODUCTOS (CORREGIDO) ---
+# --- 4. DETALLE DE PRODUCTOS ---
 st.divider()
 st.subheader("📝 Historial de Productos")
 
 # Buscador de Producto
 lista_productos_disponibles = ['Todos'] + sorted(list(df_filtrado['producto_final'].unique()))
-sel_producto = st.selectbox("🔍 Buscar un producto específico:", lista_productos_disponibles)
+sel_producto = st.selectbox("🔍 Buscar producto específico:", lista_productos_disponibles)
 
-# FILTRO DE TABLA (Esto era lo que faltaba conectar)
 if sel_producto != 'Todos':
     df_tabla = df_filtrado[df_filtrado['producto_final'] == sel_producto]
 else:
     df_tabla = df_filtrado
 
-# Mostrar Tabla
 st.dataframe(
     df_tabla[['fecha', 'cadena_comercial', 'producto_final', 'cantidad', 'precio_neto_unitario', 'gasto_total']].sort_values('fecha', ascending=False),
     column_config={
         "fecha": st.column_config.DateColumn("Fecha", format="DD/MM/YYYY"),
-        "precio_neto_unitario": st.column_config.NumberColumn("Precio Unit.", format="$ %.2f"),
-        "gasto_total": st.column_config.NumberColumn("Total", format="$ %.2f"),
+        "precio_neto_unitario": st.column_config.NumberColumn("Precio Unitario", format="$ %.2f"),
+        "gasto_total": st.column_config.NumberColumn("Total Ticket", format="$ %.2f"),
         "producto_final": "Producto",
-        "cadena_comercial": "Comercio"
+        "cadena_comercial": "Comercio",
+        "cantidad": st.column_config.NumberColumn("Cant.", format="%.2f")
     },
     use_container_width=True,
     hide_index=True

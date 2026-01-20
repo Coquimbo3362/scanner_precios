@@ -6,7 +6,7 @@ import os
 from dotenv import load_dotenv
 
 st.set_page_config(page_title="Mis Estadísticas", page_icon="📊", layout="wide")
-st.markdown("<style>.block-container {padding-top: 1rem;}</style>", unsafe_allow_html=True)
+st.markdown("<style>.block-container {padding-top: 2rem;}</style>", unsafe_allow_html=True)
 
 try:
     load_dotenv()
@@ -19,21 +19,30 @@ if 'user' not in st.session_state or not st.session_state['user']:
     st.warning("⚠️ Inicia sesión primero")
     st.stop()
 
-st.markdown("### 📊 Análisis de Mis Compras")
+st.title("📊 Mis Consumos")
 
 # 1. TRAER DATOS
 user_id = st.session_state['user'].id
 response = supabase.table('items_compra').select('*, tickets!inner(fecha, supermercados(nombre))').eq('tickets.user_id', user_id).execute()
 
 if not response.data:
-    st.info("Aún no tienes datos.")
+    st.info("Aún no tienes datos cargados.")
     st.stop()
 
 df = pd.DataFrame(response.data)
+
+# --- FILTRO DE SEGURIDAD (PRECIOS > 0) ---
+df = df[df['precio_neto_unitario'] > 0]
+
+if df.empty:
+    st.warning("No hay datos válidos (Precios > 0).")
+    st.stop()
+
 df['fecha'] = pd.to_datetime(df['tickets'].apply(lambda x: x['fecha']))
 df['sucursal_original'] = df['tickets'].apply(lambda x: x['supermercados']['nombre'])
+df['gasto_total'] = df['precio_neto_unitario'] * df['cantidad']
 
-# --- LIMPIEZA LOCAL DE NOMBRES ---
+# --- LIMPIEZA DE NOMBRES (Estandarización) ---
 def limpiar_nombre(nombre):
     n = nombre.upper() if nombre else ""
     if 'COTO' in n: return 'COTO'
@@ -48,7 +57,6 @@ def limpiar_nombre(nombre):
     return n
 
 df['supermercado'] = df['sucursal_original'].apply(limpiar_nombre)
-
 df['rubro'] = df['rubro'].fillna('Otros')
 df['marca'] = df['marca'].fillna('Genérica')
 df['producto_final'] = df['producto_generico'].fillna(df['nombre_producto'])
@@ -79,22 +87,24 @@ if producto_selec:
     ).interactive()
     st.altair_chart(chart, use_container_width=True)
 
-# --- PARTE B: DETALLE FILTRADO (CORREGIDO) ---
+# --- PARTE B: DETALLE FILTRADO ---
 st.divider()
 st.markdown(f"#### 📝 Detalle de Compras ({producto_selec})")
 
-# AQUÍ USAMOS EL MISMO DF_PROD FILTRADO ARRIBA
-df_tabla = df_prod[['rubro', 'marca', 'producto_final', 'supermercado', 'fecha', 'precio_neto_unitario']]
+# Usamos el DF filtrado arriba
+df_tabla = df_prod[['rubro', 'marca', 'producto_final', 'supermercado', 'fecha', 'precio_neto_unitario', 'cantidad', 'gasto_total']]
 df_tabla = df_tabla.sort_values(by='fecha', ascending=False)
 
-df_tabla.columns = ['Rubro', 'Marca', 'Producto', 'Supermercado', 'Fecha', 'Precio']
+df_tabla.columns = ['Rubro', 'Marca', 'Producto', 'Supermercado', 'Fecha', 'Precio Unit.', 'Cant.', 'Total']
 
 st.dataframe(
     df_tabla,
     use_container_width=True,
     hide_index=True,
     column_config={
-        "Precio": st.column_config.NumberColumn(format="$ %.2f"),
-        "Fecha": st.column_config.DateColumn(format="DD/MM/YYYY")
+        "Precio Unit.": st.column_config.NumberColumn(format="$ %.2f"),
+        "Total": st.column_config.NumberColumn(format="$ %.2f"),
+        "Fecha": st.column_config.DateColumn(format="DD/MM/YYYY"),
+        "Cant.": st.column_config.NumberColumn(format="%.2f")
     }
 )
