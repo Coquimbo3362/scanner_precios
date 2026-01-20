@@ -9,34 +9,19 @@ from google import genai
 from google.genai import types
 from supabase import create_client, Client
 
-# --- 1. CONFIGURACIÓN VISUAL ---
+# --- CONFIGURACIÓN VISUAL ---
 st.set_page_config(page_title="Club de Precios", page_icon="🛒", layout="wide", initial_sidebar_state="collapsed")
 
-# CSS: Estilos para la Landing Page y la App
 st.markdown("""
     <style>
-        /* Ajuste de márgenes */
-        .block-container {
-            padding-top: 2rem !important;
-            padding-bottom: 3rem !important;
-        }
-        
-        /* Títulos */
-        h1 { font-size: 2rem !important; text-align: center; margin-bottom: 0.5rem; color: #FF4B4B; }
-        h3 { text-align: center; margin-top: 0; font-weight: 300; }
-        
-        /* Botones Grandes */
-        .stButton button { 
-            width: 100%; border-radius: 30px; height: 3.5rem; 
-            font-size: 1.1rem; font-weight: bold;
-        }
-        
-        /* Área de carga de archivos */
+        .block-container { padding-top: 3rem !important; padding-bottom: 2rem !important; }
+        h1 { font-size: 1.8rem !important; text-align: center; margin-bottom: 1rem; }
         div[data-testid="stFileUploader"] {
-            border: 2px dashed #FF4B4B;
-            border-radius: 15px;
-            padding: 20px;
-            text-align: center;
+            width: 100% !important; padding: 15px; border: 2px dashed #4CAF50; border-radius: 15px; text-align: center;
+        }
+        .stButton button { 
+            width: 100%; border-radius: 30px; height: 3.5rem; font-size: 1.2rem; font-weight: bold;
+            background-color: #FF4B4B; color: white; border: none;
         }
     </style>
 """, unsafe_allow_html=True)
@@ -49,7 +34,7 @@ try:
     GOOGLE_KEY = st.secrets["GOOGLE_API_KEY"] if "GOOGLE_API_KEY" in st.secrets else os.environ.get("GOOGLE_API_KEY")
 
     if not URL or not KEY or not GOOGLE_KEY:
-        st.error("❌ Faltan claves de configuración.")
+        st.error("❌ Faltan claves.")
         st.stop()
 
     supabase: Client = create_client(URL, KEY)
@@ -57,24 +42,11 @@ try:
     MODELO_IA = 'gemini-2.5-flash' 
 
 except Exception as e:
-    st.error(f"Error de sistema: {e}")
+    st.error(f"Error config: {e}")
     st.stop()
 
-# --- DATOS MAESTROS ---
 PAISES_SOPORTADOS = ["Argentina", "Brasil", "Uruguay", "Chile", "Paraguay", "Bolivia", "Perú", "Colombia", "México", "España", "USA", "Otro"]
-
-# Códigos para WhatsApp (E.164)
-CODIGOS_PAIS = {
-    "Argentina 🇦🇷": "+549",
-    "Brasil 🇧🇷": "+55",
-    "Uruguay 🇺🇾": "+598",
-    "Chile 🇨🇱": "+56",
-    "México 🇲🇽": "+52",
-    "Colombia 🇨🇴": "+57",
-    "España 🇪🇸": "+34",
-    "USA 🇺🇸": "+1",
-    "Otro": "+"
-}
+CODIGOS_PAIS = {"Argentina 🇦🇷": "+549", "Brasil 🇧🇷": "+55", "Uruguay 🇺🇾": "+598", "Chile 🇨🇱": "+56", "México 🇲🇽": "+52", "Colombia 🇨🇴": "+57", "España 🇪🇸": "+34", "USA 🇺🇸": "+1", "Otro": "+"}
 
 RUBROS_VALIDOS = """
 - Almacén
@@ -91,6 +63,7 @@ RUBROS_VALIDOS = """
 - Comida Elaborada / Rotisería
 - Limpieza
 - Perfumería e Higiene
+- Farmacia
 - Bebés y Maternidad
 - Mascotas
 - Electro y Tecnología
@@ -103,7 +76,6 @@ RUBROS_VALIDOS = """
 - Otros
 """
 
-# --- FUNCIONES DE LIMPIEZA ---
 def limpiar_numero(valor):
     if not valor: return 0.0
     if isinstance(valor, (int, float)): return float(valor)
@@ -122,77 +94,42 @@ def limpiar_fecha(fecha_str):
     if len(fecha_str) != 10: return time.strftime("%Y-%m-%d")
     return fecha_str
 
-# --- LOGIN (LANDING PAGE) ---
+# --- LOGIN ---
 if 'user' not in st.session_state: st.session_state['user'] = None
 
 def login():
-    # --- ENCABEZADO DE MARKETING ---
-    st.markdown("<h1>🛒 Club de Precios</h1>", unsafe_allow_html=True)
-    st.markdown("<h3>La inteligencia colectiva contra la inflación</h3>", unsafe_allow_html=True)
-    
-    st.markdown("""
-    <p style='text-align: center; font-size: 1.1em; color: gray;'>
-        Sube la foto de tu ticket, organizamos tus gastos y comparamos precios automáticamente.
-    </p>
-    """, unsafe_allow_html=True)
-    
-    # --- COLUMNAS DE BENEFICIOS ---
-    st.divider()
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        st.markdown("<div style='text-align: center;'>📸<br><b>Escanea</b><br>Saca una foto a tu ticket. La IA hace el resto.</div>", unsafe_allow_html=True)
-    with c2:
-        st.markdown("<div style='text-align: center;'>📊<br><b>Controla</b><br>Mira cómo evolucionan tus gastos mes a mes.</div>", unsafe_allow_html=True)
-    with c3:
-        st.markdown("<div style='text-align: center;'>🤝<br><b>Ahorra</b><br>Descubre quién vende más barato en tu zona.</div>", unsafe_allow_html=True)
-    st.divider()
-
-    # --- ZONA DE INGRESO ---
-    st.info("👇 **Comienza ahora**")
-    
-    tab1, tab2 = st.tabs(["🔐 Ya soy Socio", "📝 Quiero unirme Gratis"])
-    
+    st.markdown("### 🌎 Ingreso Global")
+    tab1, tab2 = st.tabs(["Ingresar", "Crear Cuenta"])
     with tab1:
-        with st.form("login_form"):
-            email = st.text_input("Email")
-            password = st.text_input("Contraseña", type="password")
-            if st.form_submit_button("Ingresar", use_container_width=True):
-                try:
-                    session = supabase.auth.sign_in_with_password({"email": email, "password": password})
-                    st.session_state['user'] = session.user
-                    st.rerun()
-                except: st.error("Email o contraseña incorrectos")
-
+        email = st.text_input("Email", key="l_email")
+        password = st.text_input("Contraseña", type="password", key="l_pass")
+        if st.button("Entrar", key="btn_ent"):
+            try:
+                session = supabase.auth.sign_in_with_password({"email": email, "password": password})
+                st.session_state['user'] = session.user
+                st.rerun()
+            except: st.error("Email o contraseña incorrectos")
     with tab2:
-        with st.form("register_form"):
-            c_a, c_b = st.columns(2)
-            new_email = c_a.text_input("Tu Email")
-            new_pass = c_b.text_input("Crea una Contraseña", type="password")
-            
-            st.markdown("📍 **¿Dónde haces tus compras?**")
-            c1, c2, c3 = st.columns(3)
-            pais = c1.selectbox("País", PAISES_SOPORTADOS)
-            provincia = c2.text_input("Provincia")
-            ciudad = c3.text_input("Ciudad")
-            
-            if st.form_submit_button("Crear Cuenta", use_container_width=True):
-                try:
-                    res = supabase.auth.sign_up({"email": new_email, "password": new_pass})
-                    if res.user:
-                        try:
-                            supabase.table('perfiles').insert({
-                                "id": res.user.id, "pais": pais, "ciudad": ciudad, "provincia": provincia
-                            }).execute()
-                        except: pass 
-                        st.success("¡Cuenta creada! Ya puedes ingresar en la otra pestaña.")
-                except Exception as e: st.error(f"Error: {e}")
+        new_email = st.text_input("Email Reg")
+        new_pass = st.text_input("Pass Reg", type="password")
+        c1, c2 = st.columns(2)
+        pais = c1.selectbox("País", PAISES_SOPORTADOS)
+        ciudad = c2.text_input("Ciudad")
+        if st.button("Registrarme"):
+            try:
+                res = supabase.auth.sign_up({"email": new_email, "password": new_pass})
+                if res.user:
+                    try: supabase.table('perfiles').insert({"id": res.user.id, "pais": pais, "ciudad": ciudad}).execute()
+                    except: pass
+                    st.success("Cuenta creada.")
+            except Exception as e: st.error(f"Error: {e}")
 
 def logout():
     supabase.auth.sign_out()
     st.session_state['user'] = None
     st.rerun()
 
-# --- BACKEND PROCESAMIENTO ---
+# --- BACKEND ---
 def guardar_en_supabase(data):
     try: user_id = st.session_state['user'].id
     except: user_id = None 
@@ -207,7 +144,7 @@ def guardar_en_supabase(data):
     ticket_data = {
         "user_id": user_id, "supermercado_id": super_id, "fecha": limpiar_fecha(data['fecha']),
         "hora": data['hora'], "monto_total": limpiar_numero(data['total_pagado']),
-        "imagen_url": "v5.0_landing", "sucursal_direccion": data.get('sucursal_direccion'),
+        "imagen_url": "v5.1_codigos", "sucursal_direccion": data.get('sucursal_direccion'),
         "sucursal_localidad": data.get('sucursal_localidad'), "sucursal_provincia": data.get('sucursal_provincia'),
         "sucursal_pais": data.get('sucursal_pais'), "moneda": data.get('moneda')
     }
@@ -221,7 +158,9 @@ def guardar_en_supabase(data):
                 "cantidad": limpiar_numero(item['cantidad']), "precio_neto_unitario": limpiar_numero(item['precio_neto_final']),
                 "unidad_medida": item['unidad_medida'], "rubro": item.get('rubro'),
                 "marca": item.get('marca'), "producto_generico": item.get('producto_generico'),
-                "contenido_neto": limpiar_numero(item.get('contenido_neto')), "unidad_contenido": item.get('unidad_contenido')
+                "contenido_neto": limpiar_numero(item.get('contenido_neto')), 
+                "unidad_contenido": item.get('unidad_contenido'),
+                "codigo_barras": item.get('codigo_barras') # NUEVO CAMPO
             })
         if items:
             supabase.table('items_compra').insert(items).execute()
@@ -235,14 +174,18 @@ def guardar_en_supabase(data):
 def procesar_imagenes(lista_imagenes):
     contenido = []
     
+    # --- PROMPT MEJORADO PARA LEER CÓDIGOS ---
     prompt = f"""
-    Analiza este ticket de compra.
+    Analiza este ticket. REGLA DE ORO: Si el nombre ocupa 2 líneas, ÚNELAS.
     
-    REGLA DE ORO: Si el nombre del producto ocupa 2 líneas, ÚNELAS. No crees dos items.
+    NUEVA MISIÓN: Extraer el CÓDIGO DE BARRAS (EAN).
+    - En tickets como COTO, suele estar DEBAJO del nombre del producto (ej: 000264.. 779007...).
+    - El código EAN suele tener 13 dígitos y empezar con 779 (Argentina).
+    - Si lo encuentras, extráelo en el campo "codigo_barras".
+    - Para productos frescos (carne, verdura) suele no haber EAN, déjalo null.
     
-    1. SUPERMERCADO: Extrae NOMBRE + SUCURSAL (ej: JUMBO UNICENTER).
-    2. FECHA Y MONEDA: Fecha YYYY-MM-DD.
-    3. PRODUCTOS: Marca, genérico, rubro (de la lista), contenido y unidad.
+    1. SUPERMERCADO: Nombre + Sucursal.
+    2. PRODUCTOS: Marca, genérico, rubro, contenido, unidad y CÓDIGO.
     
     Rubros: {RUBROS_VALIDOS}
     
@@ -252,7 +195,7 @@ def procesar_imagenes(lista_imagenes):
         "sucursal_provincia": "Str", "sucursal_pais": "Str", "moneda": "Str",
         "fecha": "YYYY-MM-DD", "hora": "HH:MM", "nro_ticket": "str", "total_pagado": num,
         "items": [
-            {{ "nombre": "Nombre Completo", "cantidad": num, "unidad_medida": "Str", "precio_neto_final": num,
+            {{ "nombre": "Str", "codigo_barras": "Str o null", "cantidad": num, "unidad_medida": "Str", "precio_neto_final": num,
                "marca": "Str", "producto_generico": "Str", "rubro": "Str", "contenido_neto": num, "unidad_contenido": "Str" }}
         ]
     }}
@@ -276,7 +219,6 @@ else:
         st.header("👤 Mi Cuenta")
         st.write(f"{st.session_state['user'].email}")
         
-        # 1. GESTIÓN DE TELÉFONO
         with st.expander("📱 Vincular Celular", expanded=True):
             try:
                 perfil = supabase.table('perfiles').select('telefono, pais').eq('id', st.session_state['user'].id).execute().data
@@ -284,72 +226,53 @@ else:
                 if tel_actual is None: tel_actual = ""
                 pais_actual = perfil[0].get('pais', 'Argentina') if perfil else "Argentina"
             except:
-                tel_actual = ""
-                pais_actual = "Argentina"
+                tel_actual = ""; pais_actual = "Argentina"
 
-            pais_key_match = next((k for k in CODIGOS_PAIS if pais_actual in k), "Argentina 🇦🇷")
-            sel_pais = st.selectbox("Código", list(CODIGOS_PAIS.keys()), index=list(CODIGOS_PAIS.keys()).index(pais_key_match) if pais_key_match in CODIGOS_PAIS else 0)
+            pais_key = next((k for k in CODIGOS_PAIS if pais_actual in k), "Argentina 🇦🇷")
+            sel_pais = st.selectbox("Código", list(CODIGOS_PAIS.keys()), index=list(CODIGOS_PAIS.keys()).index(pais_key))
             prefijo = CODIGOS_PAIS[sel_pais]
-            
             display_num = tel_actual.replace(prefijo, "") if tel_actual.startswith(prefijo) else tel_actual
-            numero_local = st.text_input("Número (sin 0/15)", value=display_num)
+            num_local = st.text_input("Número", value=display_num)
             
-            if st.button("💾 Guardar"):
-                tel_final = f"{prefijo}{numero_local}".strip()
+            if st.button("Guardar"):
                 try:
-                    datos = {"id": st.session_state['user'].id, "telefono": tel_final, "pais": pais_actual}
-                    supabase.table('perfiles').upsert(datos).execute()
-                    st.success("Guardado!")
-                    time.sleep(1)
-                    st.rerun()
+                    supabase.table('perfiles').upsert({"id": st.session_state['user'].id, "telefono": f"{prefijo}{num_local}".strip(), "pais": pais_actual}).execute()
+                    st.success("Guardado!"); time.sleep(1); st.rerun()
                 except Exception as e: st.error(f"Error: {e}")
 
-        # 2. ACTIVAR BOT WHATSAPP
+        # BOTÓN WHATSAPP
+        TWILIO_NUMBER = "+14155238886"
+        TWILIO_CODE = "join quite-empty" # <--- REVISA QUE ESTE SEA TU CÓDIGO ACTUAL
+        
         if tel_actual:
             st.divider()
-            # ⬇️⬇️⬇️ EDITA ESTAS DOS LINEAS CON TUS DATOS DE TWILIO ⬇️⬇️⬇️
-            TWILIO_NUMBER = "+14155238886"
-            TWILIO_CODE = "join quite-empty" 
-            # ⬆️⬆️⬆️ ----------------------------------------------------
-            
-            with st.expander("🤖 Activar Bot"):
-                st.write("1. Toca el botón.")
-                st.write("2. Envía el mensaje pre-cargado.")
-                link_wa = f"https://wa.me/{TWILIO_NUMBER}?text={TWILIO_CODE.replace(' ', '%20')}"
-                st.link_button("📲 Abrir WhatsApp", link_wa)
+            with st.expander("🤖 Bot WhatsApp"):
+                st.link_button("📲 Abrir y Activar", f"https://wa.me/{TWILIO_NUMBER}?text={TWILIO_CODE.replace(' ', '%20')}")
 
         st.divider()
         if st.button("Salir"): logout()
 
-    # --- PANTALLA PRINCIPAL ---
-    st.markdown("<h1>🛒 Club de Precios</h1>", unsafe_allow_html=True)
-    st.info("💡 **Tip:** Mantén apretada una foto en tu galería para seleccionar varias a la vez.")
+    # PANTALLA PRINCIPAL
+    st.markdown("<h1>🛒 Club de Precios v5.1</h1>", unsafe_allow_html=True)
+    st.info("💡 **Tip:** Asegúrate de que los números debajo de los productos sean legibles en la foto.")
 
     if 'uploader_key' not in st.session_state: st.session_state['uploader_key'] = 0
 
-    uploaded_files = st.file_uploader(
-        "📂 Subir fotos", accept_multiple_files=True, type=['jpg','png','jpeg'],
-        key=f"uploader_{st.session_state['uploader_key']}"
-    )
+    uploaded_files = st.file_uploader("📂 Subir fotos", accept_multiple_files=True, type=['jpg','png','jpeg'], key=f"uploader_{st.session_state['uploader_key']}")
 
     if uploaded_files:
-        st.write(f"🎞️ **{len(uploaded_files)} imágenes listas**")
-        
+        st.write(f"🎞️ **{len(uploaded_files)} imágenes**")
         if st.button("🚀 PROCESAR TICKET", type="primary", use_container_width=True):
-            with st.spinner("🧠 Analizando..."):
+            with st.spinner("🧠 Leyendo códigos EAN y precios..."):
                 data = procesar_imagenes(uploaded_files)
-                
                 if data:
                     res = guardar_en_supabase(data)
-                    
-                    if res == "DUPLICADO":
-                        st.warning("⚠️ Ticket ya cargado.")
+                    if res == "DUPLICADO": st.warning("⚠️ Ticket ya cargado.")
                     elif res is not False:
                         st.balloons()
-                        total_fmt = f"{data.get('moneda','$')} {data.get('total_pagado')}"
-                        st.success(f"✅ **¡Carga Exitosa!**\n\n💰 **{total_fmt}** ({res} items)\n📍 {data.get('supermercado')}")
+                        total = f"{data.get('moneda','$')} {data.get('total_pagado')}"
+                        st.success(f"✅ **¡Carga Exitosa!**\n\n💰 **{total}** ({res} items)\n📍 {data.get('supermercado')}")
                         st.session_state['uploader_key'] += 1
                         time.sleep(4)
                         st.rerun()
-                    else:
-                        st.error("Hubo un error técnico.")
+                    else: st.error("Error técnico.")
